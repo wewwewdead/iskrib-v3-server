@@ -39,6 +39,29 @@ router.post('/verify-turnstile', async(req, res) =>{
         res.status(500).json({ success: false, message: "Server error" });
     }
 })
+router.get('/getUserData', async(req, res) => {
+    const token = req.headers?.authorization?.split(' ')[1];
+    if(!token){
+        return res.status(400).json({error: 'No token provided'});
+    }
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+    // if(authData){
+    //     console.log(authData)
+    // }
+
+    if(errorAuthData){
+        return res.status(500).json({error: errorAuthData.message});
+    }
+    const {data: userData, error: errorUserData} = await supabase
+    .from('users')
+    .select('*')
+    .eq('id', authData?.user?.id)
+
+    if(errorUserData){
+        return res.status(500).json({error: errorUserData.message});
+    }
+    return res.status(200).json({userData});
+})
 router.get('/check-user', async(req, res) => {
     const userId= req.query.userId;
     if(!userId){
