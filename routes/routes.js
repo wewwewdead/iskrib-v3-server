@@ -80,7 +80,7 @@ router.get('/check-user', async(req, res) => {
 })
 
 router.post('/upload-user-data',upload, async(req, res) =>{
-    const {bio, name} = req.body;
+    const {bio, name, userEmail} = req.body;
     const image = req.file;
 
     const token = req.headers.authorization.split(' ')[1];
@@ -126,6 +126,7 @@ router.post('/upload-user-data',upload, async(req, res) =>{
         bio: bio,
         name: name,
         id: authData.user.id,
+        user_email: authData.user.email,
         imageUrl: publicUrl ? publicUrl : null
     }
     const {data: uploadData, error:errorUploadData} = await supabase
