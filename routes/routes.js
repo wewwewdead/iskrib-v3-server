@@ -2,6 +2,8 @@ import express from "express";
 import supabase from "../services/supabase.js";
 import multer from "multer";
 import sharp from 'sharp';
+import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
+import ParseContent from "../utils/parseData.js";
 
 const router = express.Router();
 const upload = multer({
@@ -189,6 +191,9 @@ router.post('/delete-journal-images', async(req, res) =>{
     try {
         const token = req.headers.authorization?.split(' ')[1];
         const {filepath} = req.body;
+
+        // console.log(filepath)
+
         if(!token){
             return res.status(400).json({error: 'No token provided'})
         }
@@ -198,7 +203,7 @@ router.post('/delete-journal-images', async(req, res) =>{
         }
         const {error} = await supabase.storage
         .from('journal-images')
-        .remove([filepath]);
+        .remove(filepath);
 
         if(error) throw error;
         return res.status(200).json({message: 'Image deleted successfully'});
@@ -209,21 +214,39 @@ router.post('/delete-journal-images', async(req, res) =>{
 })
 router.post('/save-journal', upload, async(req, res) => {
     try {
+        const {content, title} = req.body;
+
         const token = req.headers.authorization?.split(' ')[1];
         if(!token) return res.status(400).json({error: 'No token provided'});
 
-        const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-        if(errorAuthData) return res.status(400).json({error: errorAuthData})
-        
-        const userId = authData.user.id
-        const {content, title} = req.body;
         if(!content || !title) {
             res.status(400).json({error: 'Title or content is not available'});
         }
+
+        const parsedData = ParseContent(content);
+        // console.log(parsedData.wholeText)
+
+        // const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+        const authData = supabase.auth.getUser(token);
+        const embeddingPromise = GenerateEmbeddings(title, parsedData.wholeText)
+
+        const [auhtDataResult, embeddingResult] = await Promise.all([
+            authData,
+            embeddingPromise
+        ])
+
+        if(auhtDataResult.error) return res.status(400).json({error: auhtDataResult.error})
+
+        const userId = auhtDataResult?.data?.user?.id;
+        const embedding = embeddingResult;
+
+        if(!Array.isArray(embedding)){
+            throw new Error('Embedding generation failed')
+        }
+        
         const {data, error} = await supabase
         .from('journals')
-        .insert({user_id: userId, content: content, title: title});
+        .insert({user_id: userId, content: content, title: title, embeddings: embedding});
 
         if(error) return res.status(500).json({error: error})
         
