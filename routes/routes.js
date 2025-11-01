@@ -11,6 +11,42 @@ const upload = multer({
     limits: {fileSize: 10 * 1024 * 1024},
 }).single('image');
 
+export const imageUploader = async(file, userId, bucket) =>{
+    if(!file){
+        return res.status(500).json({error: 'no file received'});
+    }
+
+    let img_buffer = null
+    let img_url = null
+    img_buffer = await sharp(file.buffer)
+    .webp({quality: 80})
+    .toBuffer();
+
+    const folderName = `user_id_${userId}`;
+    const fileName = `${Date.now()}_${crypto.randomUUID()}.webp`;
+    const filePath = `${folderName}/${fileName}`;
+
+    const {data: uploadImage, error: errorUploadImage} = await supabase.storage
+    .from(bucket)
+    .upload(filePath, img_buffer, {
+        contentType: 'image/webp',
+        upsert: true
+    })
+    if(errorUploadImage){
+        return res.status(500).json({error: errorUploadImage});
+    }
+    const {data: data_url} = supabase.storage
+    .from(bucket)
+    .getPublicUrl(filePath)
+    
+    if(data_url){
+        img_url = data_url.publicUrl;
+        return img_url;
+    } else {
+        throw new Error('Error uploading the image');
+    }
+}
+
 router.post('/verify-turnstile', async(req, res) =>{
     const {token} = req.body;
 
@@ -93,7 +129,7 @@ router.post('/upload-user-data',upload, async(req, res) =>{
     const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token)
 
     if(errorAuthData){
-        return res.status(4500).json({error: errorAuthData})
+        return res.status(400).json({error: errorAuthData})
     }
 
     let webBuffer = null
@@ -140,6 +176,70 @@ router.post('/upload-user-data',upload, async(req, res) =>{
     }
     return res.status(200).json({success: uploadData})
 })
+router.post('/update-user-data', upload, async(req, res) => {
+    let avatar_url = null
+    const {name, bio, profileBg, dominantColors, secondaryColors, fontColor} = req.body;
+
+    const payload = {
+        name: name,
+        bio: bio,
+        profile_font_color: fontColor,
+        dominant_colors: dominantColors,
+        secondary_colors: secondaryColors
+    }
+
+    try {
+        payload.background = JSON.parse(profileBg);
+    } catch (error) {
+        console.error("Failed to parse JSON string from FormData:", e);
+    }
+
+    const token = req.headers?.authorization?.split(' ')[1];
+    if(!token) return res.status(400).json({error: 'Not authorized'});
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+    if(errorAuthData) return res.status(400).json({error: errorAuthData});
+
+    const file = req.file;
+    if(file){
+        const img_url = await imageUploader(file, authData?.user?.id, 'avatars');
+        if(img_url){
+            avatar_url = img_url
+            payload.image_url = avatar_url
+        }
+    }
+
+    const {data: uploadData, error: errorUploadData} = await supabase
+    .from('users')
+    .update(payload)
+    .eq('id', authData?.user?.id);
+
+    if(errorUploadData) return res.status(500).json({error: errorUploadData});
+
+    console.log(payload);
+    console.log(uploadData);
+    
+    return res.status(200).json({data: uploadData}) 
+})
+
+router.post('/uploadBackground', upload, async(req, res) => {
+    const {userId} = req.body;
+    const file = req.file
+    if(!file || !userId) return res.status(400).json({error: 'Missing file or userid'});
+
+    try {
+        const image_url = await imageUploader(file, userId, 'background');
+        if(image_url){
+            return res.status(200).json({data: image_url});
+        } else {
+            return res.status(500).json({error: image_url});
+        }
+    } catch (error) {
+        console.error('upload image error', error);
+        res.status(400).json({error: 'Failed to upload image'})
+    }
+})
+
 router.post('/save-journal-image', upload, async(req, res) => {
     const token = req.headers.authorization?.split(' ')[1];
 
