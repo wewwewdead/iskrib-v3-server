@@ -165,7 +165,7 @@ router.post('/upload-user-data',upload, async(req, res) =>{
         name: name,
         id: authData.user.id,
         user_email: authData.user.email,
-        imageUrl: publicUrl ? publicUrl : null
+        image_url: publicUrl ? publicUrl : null
     }
     const {data: uploadData, error:errorUploadData} = await supabase
     .from('users')
@@ -217,9 +217,29 @@ router.post('/update-user-data', upload, async(req, res) => {
     if(errorUploadData) return res.status(500).json({error: errorUploadData});
 
     console.log(payload);
-    console.log(uploadData);
     
     return res.status(200).json({data: uploadData}) 
+})
+router.post('/updateFontColor',upload, async(req, res) => {
+    const {fontColor} = req.body;
+    if(!fontColor) return res.status(400).json({error: 'Missing font data'});
+
+    const token = req.headers.authorization?.split(' ')[1];
+    if(!token) return res.status(400).json({error: 'Not authorized'});
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+    if(errorAuthData) return res.status(500).json({error: errorAuthData});
+
+    const userId = authData?.user?.id;
+
+    const {data: upadteFont, error: errorUpdateFont} = await supabase
+    .from('users')
+    .update({profile_font_color: fontColor})
+    .eq('id', userId);
+
+    if(errorUpdateFont) return res.status(500).json({error: errorUpdateFont});
+
+    return res.status(200).json({message: 'success'});
 })
 
 router.post('/uploadBackground', upload, async(req, res) => {
