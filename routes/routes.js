@@ -382,7 +382,7 @@ router.get('/journals', async(req, res) => {
     try {
         let query = supabase
         .from('journals')
-        .select('*, users(*)')
+        .select('*, users(*), likes(*)')
         .order('created_at', {ascending: false})
         .limit(parseInt(limit))
 
@@ -401,4 +401,72 @@ router.get('/journals', async(req, res) => {
         return res.status(500).json({ error: error.message });
     }
 })
+
+router.post('/like', async(req, res) =>{
+    const {journalId} = req.body;
+    const token = req.headers?.authorization?.split(' ')[1];
+    if(!token) return res.status(400).json({error: 'Not Authorized'});
+    if(!journalId) return res.status(400).json({error: 'No post Id!'})
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+    if(errorAuthData) return res.status(500).json({error: errorAuthData});
+
+    const userId = authData.user.id;
+
+    const {data: existingLike, error: errorExistingLike} = await supabase
+    .from('likes')
+    .select('user_id')
+    .eq('user_id', userId)
+    .eq('journal_id', journalId)
+    .maybeSingle()
+
+    if(errorExistingLike) return res.status(500).json({error: errorExistingLike});
+    if(!existingLike){  
+        const {data, error} = await supabase
+        .from('likes')
+        .insert({user_id: userId, journal_id: journalId})
+
+        if(error) return res.status(500).json({error: error});
+
+        return res.status(200).json({message: 'liked'});
+    } else {
+        const userId = authData.user.id;
+        const {data, error} = await supabase
+        .from('likes')
+        .delete()
+        .eq('user_id', userId)
+        .eq('journal_id', journalId)
+
+        if(error) return res.status(500).json({error: error});
+
+        return res.status(200).json({message: 'unliked'});
+    }
+
+})
+
+// router.get('/getLikes', async(req, res) => {
+//     const token = req.headers?.authorization?.split(' ')[1];
+//     console.log(token)
+
+//     if(!token){
+//         return res.status(400).json({error: 'Not authorized'});
+//     }
+//     const {data: userData, error: userDataError} = await supabase.auth.getUser(token);
+
+//     if(userDataError){
+//         return res.status(500).json({error: userDataError});
+//     }
+//     const userId = userData.user.id;
+//     const {data, error} = await supabase
+//     .from('likes')
+//     .select('journal_id')
+//     .eq('user_id', userId)
+
+//     if(error){
+//         return res.status(500).json({error: error})
+//     }
+//     console.log(data)
+//     return res.status(200).json({data: data});
+
+// })
 export default router;
