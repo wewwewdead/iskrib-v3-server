@@ -377,12 +377,12 @@ router.post('/save-journal', upload, async(req, res) => {
 })
 
 router.get('/journals', async(req, res) => {
-    const {limit = 10, before} = req.query;
+    const {limit = 5, before} = req.query;
 
     try {
         let query = supabase
         .from('journals')
-        .select('*, users(*), likes(*)')
+        .select('*, users(*), likes(*), comments(count)')
         .order('created_at', {ascending: false})
         .limit(parseInt(limit))
 
@@ -442,6 +442,63 @@ router.post('/like', async(req, res) =>{
         return res.status(200).json({message: 'unliked'});
     }
 
+})
+
+router.post('/addComment',upload, async(req, res) =>{
+    const token = req.headers?.authorization?.split(' ')[1];
+    if(!token) return res.status(400).json({error: 'Not authorized'});
+    console.log(req.body)
+    const {comments, postId} = req.body;
+
+    if(!comments || !postId){
+        return res.status(400).json({error: 'no postId or Comment recieve'});
+    }
+    const{data: authData, errorAuthData} = await supabase.auth.getUser(token)
+
+    if(errorAuthData) return res.status(500).json({error: errorAuthData});
+
+    const {data: addComment, error: errorAddComment} = await supabase
+    .from('comments')
+    .insert({
+        comment: comments,
+        post_id: postId,
+        user_id: authData?.user?.id
+    })
+
+    if(errorAddComment) return res.status(500).json({error: errorAddComment});
+
+    return res.status(200).json({message: 'success'});
+})
+
+router.get('/getComments', async(req, res) =>{
+    const {postId, limit = 10, before} = req.query;
+
+    if(!postId){
+        return res.status(400).json({error: 'no postId'})
+    }
+
+    try {
+        
+        let query = supabase
+        .from('comments')
+        .select('*, users(name, image_url)')
+        .eq('post_id', postId)
+        .order('created_at', {ascending: false})
+        .limit(parseInt(limit))
+
+        if(before){
+            query = query.lt('created_at', before)
+        }
+
+        const {data: comments, error: errorFetchComments} = await query;
+        if(errorFetchComments){
+            return res.status(500).json({error: errorFetchComments});
+        }
+        return res.status(200).json({comments: comments});
+    } catch (error) {
+        console.error('Error fetching comments:', error);
+        return res.status(500).json({ error: error.message });
+    }
 })
 
 // router.get('/getLikes', async(req, res) => {
