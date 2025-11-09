@@ -33,7 +33,8 @@ export const imageUploader = async(file, userId, bucket) =>{
         upsert: true
     })
     if(errorUploadImage){
-        return res.status(500).json({error: errorUploadImage});
+        console.error('supabase error while uploading image to supabase bucket', errorUploadImage)
+        return res.status(500).json({error: 'error uploading image into supabase bucket'});
     }
     const {data: data_url} = supabase.storage
     .from(bucket)
@@ -127,6 +128,7 @@ router.post('/upload-user-data',upload, async(req, res) =>{
     }
 
     const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token)
+    const userId = authData?.user?.id;
 
     if(errorAuthData){
         return res.status(400).json({error: errorAuthData})
@@ -135,29 +137,30 @@ router.post('/upload-user-data',upload, async(req, res) =>{
     let webBuffer = null
     let publicUrl = null
     if(image){
-        webBuffer = await sharp(image.buffer)
-        .webp({quality: 80})
-        .toBuffer();
+        // webBuffer = await sharp(image.buffer)
+        // .webp({quality: 80})
+        // .toBuffer();
 
-        const folderName = `user_${authData.user.id}`
-        const fileName = `${authData?.user.id}_${crypto.randomUUID()}.webp`;
-        const filePath = `${folderName}/${fileName}`;
+        // const folderName = `user_${authData.user.id}`
+        // const fileName = `${authData?.user.id}_${crypto.randomUUID()}.webp`;
+        // const filePath = `${folderName}/${fileName}`;
 
-        const {data: uploadImage, error: errorUploadImage} = await supabase.storage
-        .from('avatars')
-        .upload(filePath, webBuffer, {
-            contentType: 'image/webp',
-            upsert: true
-        });
-        if(errorUploadImage){
-            return res.status(500).json({error: errorUploadImage})
-        }
+        // const {data: uploadImage, error: errorUploadImage} = await supabase.storage
+        // .from('avatars')
+        // .upload(filePath, webBuffer, {
+        //     contentType: 'image/webp',
+        //     upsert: true
+        // });
+        // if(errorUploadImage){
+        //     return res.status(500).json({error: errorUploadImage})
+        // }
 
-        const {data: dataUrl} = supabase.storage
-        .from('avatars')
-        .getPublicUrl(filePath);
+        // const {data: dataUrl} = supabase.storage
+        // .from('avatars')
+        // .getPublicUrl(filePath);
+        const dataUrl = await imageUploader(image, userId, 'avatars');
 
-        publicUrl = dataUrl.publicUrl;
+        publicUrl = dataUrl;
     }
 
     const data = {
@@ -176,6 +179,7 @@ router.post('/upload-user-data',upload, async(req, res) =>{
     }
     return res.status(200).json({success: uploadData})
 })
+
 router.post('/update-user-data', upload, async(req, res) => {
     let avatar_url = null
     const {name, bio, profileBg, dominantColors, secondaryColors, fontColor} = req.body;
@@ -266,7 +270,11 @@ router.post('/save-journal-image', upload, async(req, res) => {
     if(!token) return res.status(400).json({error: 'Not authorized'})
     
     const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-    if(errorAuthData) return res.status(400).json({error: errorAuthData.message});
+
+    if(errorAuthData) {
+        console.error('supabase error while checking users authentication', errorAuthData)
+        return res.status(500).json({error: 'error checking users authentication'});
+    }
 
     const user_id = authData.user.id;
 
@@ -283,25 +291,28 @@ router.post('/save-journal-image', upload, async(req, res) => {
 
     //make a helper function if yoou have time 
     //in helper function you pass the parameters(ID, FILE AND THE BUCKET_NAME)
-    const folderName = `user_id_${user_id}`;
-    const fileName = `${Date.now()}_${crypto.randomUUID()}.webp`;
-    const filePath = `${folderName}/${fileName}`;
+    // const folderName = `user_id_${user_id}`;
+    // const fileName = `${Date.now()}_${crypto.randomUUID()}.webp`;
+    // const filePath = `${folderName}/${fileName}`;
 
-    const {data: uploadImage, error: errorUploadImage} = await supabase.storage
-    .from('journal-images')
-    .upload(filePath, img_buffer, {
-        contentType: 'image/webp',
-        upsert: true
-    })
-    if(errorUploadImage){
-        return res.status(500).json({error: errorUploadImage});
-    }
-    const {data: data_url} = supabase.storage
-    .from('journal-images')
-    .getPublicUrl(filePath)
+    // const {data: uploadImage, error: errorUploadImage} = await supabase.storage
+    // .from('journal-images')
+    // .upload(filePath, img_buffer, {
+    //     contentType: 'image/webp',
+    //     upsert: true
+    // })
+    // if(errorUploadImage){
+    //     console.error('supabase error while uploading image into supabase', errorUploadImage)
+    //     return res.status(500).json({error: 'supabase error while uploading image into supabase bucket'});
+    // }
+    // const {data: data_url} = supabase.storage
+    // .from('journal-images')
+    // .getPublicUrl(filePath)
+
+    const data_url = await imageUploader(file, user_id, 'journal-images');
     
     if(data_url){
-        img_url = data_url.publicUrl;
+        img_url = data_url;
         return res.status(200).json({img_url: img_url})
     } else {
         res.status(500).json({error: 'no image url available'})
@@ -325,7 +336,10 @@ router.post('/delete-journal-images', async(req, res) =>{
         .from('journal-images')
         .remove(filepath);
 
-        if(error) throw error;
+        if(error){
+            console.error('supabase error while deleting data from supabase', error)
+            return res.status(500).json({error: 'error deleting data from database'})
+        }
         return res.status(200).json({message: 'Image deleted successfully'});
         } catch (error) {
             console.error('Delete image error', error);
@@ -355,7 +369,10 @@ router.post('/save-journal', upload, async(req, res) => {
             embeddingPromise
         ])
 
-        if(auhtDataResult.error) return res.status(400).json({error: auhtDataResult.error})
+        if(auhtDataResult.error) {
+            console.error('supabase error while checking users authentication', auhtDataResult.error);
+            return res.status(400).json({error: 'error checking users authenication'})
+        }
 
         const userId = auhtDataResult?.data?.user?.id;
         const embedding = embeddingResult;
@@ -368,7 +385,10 @@ router.post('/save-journal', upload, async(req, res) => {
         .from('journals')
         .insert({user_id: userId, content: content, title: title, embeddings: embedding});
 
-        if(error) return res.status(500).json({error: error})
+        if(error) {
+            console.error('supabase error while inserting data into supabase', error)
+            return res.status(500).json({error: 'error inserting journal into supabase'})
+        }
         
         return res.status(200).json({message: 'Content saved successfully!'})
     } catch (error) {
@@ -378,13 +398,14 @@ router.post('/save-journal', upload, async(req, res) => {
 
 router.get('/journals', async(req, res) => {
     const {limit = 5, before} = req.query;
+    // console.log(before)
 
     try {
         let query = supabase
         .from('journals')
         .select('*, users(*), likes(*), comments(count)')
         .order('created_at', {ascending: false})
-        .limit(parseInt(limit))
+        .limit(parseInt(limit) + 1)
 
         //if cursor(before) exist then fetch only the older post;
         if(before) {
@@ -393,9 +414,15 @@ router.get('/journals', async(req, res) => {
 
         const {data, error} = await query;
 
-        if(error) throw new Error(error.message);
+        if(error) {
+            console.error('supabase error while fetching journals', error)
+            return res.status(500).json({error: 'error fetching journals'});
+        }
 
-        res.status(200).json({data, hasMore: data.length === parseInt(limit)}); 
+        const hasMore = data.length > parseInt(limit);
+        const journaldData = hasMore ? data.slice(0, parseInt(limit)) : data;
+
+        res.status(200).json({data: journaldData, hasMore: hasMore}); 
     } catch (error) {
         console.error('Error fetching posts:', error);
         return res.status(500).json({ error: error.message });
@@ -409,7 +436,11 @@ router.post('/like', async(req, res) =>{
     if(!journalId) return res.status(400).json({error: 'No post Id!'})
 
     const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-    if(errorAuthData) return res.status(500).json({error: errorAuthData});
+
+    if(errorAuthData) {
+        console.error('supabae error while checking users authentication', errorAuthData)
+        return res.status(500).json({error: 'error checking user authentication'})
+    };
 
     const userId = authData.user.id;
 
@@ -420,7 +451,11 @@ router.post('/like', async(req, res) =>{
     .eq('journal_id', journalId)
     .maybeSingle()
 
-    if(errorExistingLike) return res.status(500).json({error: errorExistingLike});
+    if(errorExistingLike){
+        console.error('supabase error while checking existing like', errorExistingLike)
+        return res.status(500).json({error: 'error checking existing like'});
+    }
+
     if(!existingLike){  
         const {data, error} = await supabase
         .from('likes')
@@ -437,7 +472,10 @@ router.post('/like', async(req, res) =>{
         .eq('user_id', userId)
         .eq('journal_id', journalId)
 
-        if(error) return res.status(500).json({error: error});
+        if(error) {
+            console.error('supabase error while inserting/ deleing like', error)
+            return res.status(500).json({error: 'error add like'});
+        }
 
         return res.status(200).json({message: 'unliked'});
     }
@@ -455,7 +493,10 @@ router.post('/addComment',upload, async(req, res) =>{
     }
     const{data: authData, errorAuthData} = await supabase.auth.getUser(token)
 
-    if(errorAuthData) return res.status(500).json({error: errorAuthData});
+    if(errorAuthData) {
+        console.error('supabae error while checking users authentication', errorAuthData)
+        return res.status(500).json({error: 'error checking user authentication'})
+    };
 
     const {data: addComment, error: errorAddComment} = await supabase
     .from('comments')
@@ -465,13 +506,18 @@ router.post('/addComment',upload, async(req, res) =>{
         user_id: authData?.user?.id
     })
 
-    if(errorAddComment) return res.status(500).json({error: errorAddComment});
+    if(errorAddComment){
+        console.error('supabase error while inserting comments', errorAddComment)
+        return res.status(500).json({error: 'error adding comments'});
+    } 
+        
 
     return res.status(200).json({message: 'success'});
 })
 
 router.get('/getComments', async(req, res) =>{
     const {postId, limit = 10, before} = req.query;
+    // console.log(before)
 
     if(!postId){
         return res.status(400).json({error: 'no postId'})
@@ -484,7 +530,8 @@ router.get('/getComments', async(req, res) =>{
         .select('*, users(name, image_url)')
         .eq('post_id', postId)
         .order('created_at', {ascending: false})
-        .limit(parseInt(limit))
+        .order('id', {ascending: false})
+        .limit(parseInt(limit) + 1) //peek ahead +1, get 1 more data if the data in the table has more than the limit
 
         if(before){
             query = query.lt('created_at', before)
@@ -492,9 +539,14 @@ router.get('/getComments', async(req, res) =>{
 
         const {data: comments, error: errorFetchComments} = await query;
         if(errorFetchComments){
-            return res.status(500).json({error: errorFetchComments});
+            console.error('supabase error while fetching comments', errorFetchComments)
+            return res.status(500).json({error: 'failed to fect comments'});
         }
-        return res.status(200).json({comments: comments});
+
+        const hasMore = comments.length > limit; // return true if it has peek ahead
+        const commentsData = hasMore ? comments.slice(0, parseInt(limit)) : comments;
+
+        return res.status(200).json({comments: commentsData, hasMore: hasMore});
     } catch (error) {
         console.error('Error fetching comments:', error);
         return res.status(500).json({ error: error.message });
