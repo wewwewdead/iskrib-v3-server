@@ -397,15 +397,19 @@ router.post('/save-journal', upload, async(req, res) => {
 })
 
 router.get('/journals', async(req, res) => {
-    const {limit = 5, before} = req.query;
-    // console.log(before)
+    const {limit = 5, before, userId} = req.query;
+    // console.log(userId);
 
     try {
         let query = supabase
         .from('journals')
-        .select('*, users(*), likes(*), comments(count)')
+        .select('*, users(*), likes(*), comments(count), bookmarks(user_id)')
         .order('created_at', {ascending: false})
         .limit(parseInt(limit) + 1)
+
+        if(userId && !userId === 'undefined'){
+            query = query.filter('bookmarks.user_id', 'eq', userId);
+        }
 
         //if cursor(before) exist then fetch only the older post;
         if(before) {
@@ -551,6 +555,59 @@ router.get('/getComments', async(req, res) =>{
         console.error('Error fetching comments:', error);
         return res.status(500).json({ error: error.message });
     }
+})
+
+router.post('/addBoorkmark',upload, async(req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    const {journalId} = req.body;
+
+    if(!token) return res.status(400).json({error: 'Not authorized'});
+    if(!journalId) return res.status(400).json({error: 'No journalId!'})
+    
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData) {
+        console.error('error:', errorAuthData)
+        return res.status(500).json({error: "supabase error while checking user's authorization"});
+    }
+    const user_id = authData?.user?.id;
+
+    const {data:checkExisting, error: errorCheckExisting} = await supabase
+    .from('bookmarks')
+    .select('*')
+    .eq('user_id',user_id)
+    .eq('journal_id', journalId)
+    .maybeSingle()
+
+    if(errorCheckExisting){
+        console.error('supabase error while checking existing bookmark', errorCheckExisting);
+        return res.status(500).json({error: 'suabase error while checking existing bookmark'});
+    }
+
+    if(!checkExisting){
+        const {data: uploadData, error: errorUploadData} = await supabase
+        .from('bookmarks')
+        .insert({user_id: user_id, journal_id: journalId})
+
+        if(errorUploadData){
+            console.error('error:', errorUploadData);
+            return res.status(500).json({error: 'supabase error while uploading bookmark data.'});
+        }
+        return res.status(200).json({message: 'success'});
+    } else {
+        const {data: removeBookmark, error: errorRemoveBookmark} = await supabase
+        .from('bookmarks')
+        .delete()
+        .eq('user_id',user_id)
+        .eq('journal_id', journalId)
+
+        if(errorRemoveBookmark){
+            console.error('error while deleting bookmark', errorRemoveBookmark)
+            return res.status(500).json({error: 'error removing bookmark'})
+        }
+
+        return res.status(200).json({message: 'deleted'})
+    }  
 })
 
 // router.get('/getLikes', async(req, res) => {
