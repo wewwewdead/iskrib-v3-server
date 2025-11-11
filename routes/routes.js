@@ -645,31 +645,4 @@ router.get('/getBookmarks', async(req, res) => {
     return res.status(200).json({bookmarks: data});
 })
 
-
-
-// router.get('/getLikes', async(req, res) => {
-//     const token = req.headers?.authorization?.split(' ')[1];
-//     console.log(token)
-
-//     if(!token){
-//         return res.status(400).json({error: 'Not authorized'});
-//     }
-//     const {data: userData, error: userDataError} = await supabase.auth.getUser(token);
-
-//     if(userDataError){
-//         return res.status(500).json({error: userDataError});
-//     }
-//     const userId = userData.user.id;
-//     const {data, error} = await supabase
-//     .from('likes')
-//     .select('journal_id')
-//     .eq('user_id', userId)
-
-//     if(error){
-//         return res.status(500).json({error: error})
-//     }
-//     console.log(data)
-//     return res.status(200).json({data: data});
-
-// })
 export default router;
