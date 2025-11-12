@@ -620,7 +620,7 @@ router.get('/getBookmarks', async(req, res) => {
 
     let query = supabase
     .from('bookmarks')
-    .select('created_at, journals(id, created_at, user_id, content, title)')
+    .select('*, journals(id, created_at, user_id, content, title, likes(*), comments(count)), users(name, image_url, user_email)')
     .eq('user_id', userId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -632,17 +632,16 @@ router.get('/getBookmarks', async(req, res) => {
     
     const {data: bookmarks, error: errorBookmarks} = await query;
     // console.log(bookmarks)
-
-    const hasMore = bookmarks.length > parseInt(limit);
-    const data = hasMore ? bookmarks.slice(0, parseInt(limit)) : bookmarks;
-
     if(errorBookmarks){
         console.error('supabase error while getting bookmarks:', errorBookmarks);
         return res.status(500).json({error: 'error while fetchin bookmarks from database'});
     }
 
+    const hasMore = bookmarks.length > parseInt(limit);
+    const data = hasMore ? bookmarks.slice(0, parseInt(limit)) : bookmarks;
+
     // console.log(bookmarks);
-    return res.status(200).json({bookmarks: data});
+    return res.status(200).json({bookmarks: data,});
 })
 
 export default router;
