@@ -79,28 +79,22 @@ router.post('/verify-turnstile', async(req, res) =>{
     }
 })
 router.get('/getUserData', async(req, res) => {
-    const token = req.headers?.authorization?.split(' ')[1];
-    if(!token){
-        return res.status(400).json({error: 'No token provided'});
+    const {userId} = req.query
+    if(!userId){
+        return res.status(400).json({error: 'No userId provided'});
     }
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-    // if(authData){
-    //     console.log(authData)
-    // }
 
-    if(errorAuthData){
-        return res.status(500).json({error: errorAuthData.message});
-    }
     const {data: userData, error: errorUserData} = await supabase
     .from('users')
     .select('*')
-    .eq('id', authData?.user?.id)
+    .eq('id', userId)
 
     if(errorUserData){
         return res.status(500).json({error: errorUserData.message});
     }
     return res.status(200).json({userData});
 })
+
 router.get('/check-user', async(req, res) => {
     const userId= req.query.userId;
     if(!userId){
@@ -620,7 +614,7 @@ router.get('/getBookmarks', async(req, res) => {
 
     let query = supabase
     .from('bookmarks')
-    .select('*, journals(id, created_at, user_id, content, title, likes(*), comments(count)), users(name, image_url, user_email)')
+    .select('*, journals(id, created_at, user_id, content, title, likes(*), comments(count), users(name, image_url, user_email)) ', {count: 'exact'})
     .eq('user_id', userId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -630,7 +624,7 @@ router.get('/getBookmarks', async(req, res) => {
         query = query.lt('created_at', before)
     }
     
-    const {data: bookmarks, error: errorBookmarks} = await query;
+    const {data: bookmarks, error: errorBookmarks, count} = await query;
     // console.log(bookmarks)
     if(errorBookmarks){
         console.error('supabase error while getting bookmarks:', errorBookmarks);
@@ -641,7 +635,8 @@ router.get('/getBookmarks', async(req, res) => {
     const data = hasMore ? bookmarks.slice(0, parseInt(limit)) : bookmarks;
 
     // console.log(bookmarks);
-    return res.status(200).json({bookmarks: data,});
+    const isFetchingNextPage = before ? true : false
+    return res.status(200).json({bookmarks: data, hasMore: hasMore, totalBookmarks: isFetchingNextPage ? null : count});
 })
 
 export default router;
