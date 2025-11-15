@@ -397,13 +397,22 @@ router.get('/journals', async(req, res) => {
     try {
         let query = supabase
         .from('journals')
-        .select('*, users(*), likes(*), comments(count), bookmarks(user_id)')
+        .select(`
+            *, users(*), 
+            like_count: likes(count),
+            comment_count: comments(count), 
+            bookmark_count: bookmarks(count),
+            
+            has_liked: likes!left(user_id),
+            has_bookmarked: bookmarks!left(user_id)`
+        )
+        
         .order('created_at', {ascending: false})
         .limit(parseInt(limit) + 1)
 
-        if(userId && !userId === 'undefined'){
-            query = query.filter('bookmarks.user_id', 'eq', userId);
-        }
+        // if(userId && !userId === 'undefined'){
+        //     query = query.eq('likes.user_id', userId).eq('bookmarks.user_id', userId);
+        // }
 
         //if cursor(before) exist then fetch only the older post;
         if(before) {
@@ -417,10 +426,16 @@ router.get('/journals', async(req, res) => {
             return res.status(500).json({error: 'error fetching journals'});
         }
 
-        const hasMore = data.length > parseInt(limit);
-        const journaldData = hasMore ? data.slice(0, parseInt(limit)) : data;
+        const formatted = data.map((journal) => ({
+            ...journal,
+            has_liked: Array.isArray(journal.has_liked) && journal.has_liked.length > 0,
+            has_bookmarked: Array.isArray(journal.has_bookmarked) && journal.has_bookmarked.length > 0
+        }))
 
-        res.status(200).json({data: journaldData, hasMore: hasMore}); 
+        const hasMore = data.length > parseInt(limit);
+        const slicedData = hasMore ? formatted.slice(0, parseInt(limit)) : formatted;
+
+        res.status(200).json({data: slicedData, hasMore: hasMore}); 
     } catch (error) {
         console.error('Error fetching posts:', error);
         return res.status(500).json({ error: error.message });
@@ -614,7 +629,20 @@ router.get('/getBookmarks', async(req, res) => {
 
     let query = supabase
     .from('bookmarks')
-    .select('*, journals(id, created_at, user_id, content, title, likes(*), comments(count), users(name, image_url, user_email)) ', {count: 'exact'})
+    .select(`*,
+        journals(
+        id, created_at, user_id, content, title, 
+        comment_count: comments(count),
+        bookmark_count: bookmarks(count),
+
+        users(name, user_email, image_url),
+
+        like_count: likes(count),
+        has_liked: likes!left(user_id),
+        has_bookmarked: bookmarks!left(user_id)
+        )
+        `, {count: 'exact'})
+
     .eq('user_id', userId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -631,12 +659,26 @@ router.get('/getBookmarks', async(req, res) => {
         return res.status(500).json({error: 'error while fetchin bookmarks from database'});
     }
 
+    // console.log(bookmarks)
+
+    const formatted = bookmarks.map((bookmark) => ({
+        ...bookmark,
+        journals:{
+            ...bookmark.journals,
+            has_liked: Array.isArray(bookmark.journals?.has_liked) && bookmark?.journals.has_liked.length > 0,
+            has_bookmarked: Array.isArray(bookmark?.journals.has_bookmarked) && bookmark?.journals.has_bookmarked.length > 0
+        }
+    }))
+
     const hasMore = bookmarks.length > parseInt(limit);
-    const data = hasMore ? bookmarks.slice(0, parseInt(limit)) : bookmarks;
+    const slicedData = hasMore ? formatted.slice(0, parseInt(limit)) : formatted;
 
     // console.log(bookmarks);
-    const isFetchingNextPage = before ? true : false
-    return res.status(200).json({bookmarks: data, hasMore: hasMore, totalBookmarks: isFetchingNextPage ? null : count});
+    
+    return res.status(200).json({
+        bookmarks: slicedData, 
+        hasMore: hasMore, 
+        totalBookmarks: before ? null : count});
 })
 
 export default router;
