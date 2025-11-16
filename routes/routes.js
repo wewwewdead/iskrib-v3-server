@@ -1,4 +1,4 @@
-import express from "express";
+import express, { json } from "express";
 import supabase from "../services/supabase.js";
 import multer from "multer";
 import sharp from 'sharp';
@@ -84,15 +84,38 @@ router.get('/getUserData', async(req, res) => {
         return res.status(400).json({error: 'No userId provided'});
     }
 
-    const {data: userData, error: errorUserData} = await supabase
+
+    const userDataPromise = supabase
     .from('users')
     .select('*')
     .eq('id', userId)
 
-    if(errorUserData){
-        return res.status(500).json({error: errorUserData.message});
+    const followerCountPromise = supabase
+    .from('follows')
+    .select('*', {count: 'exact', head: true})
+    .eq('following_id', userId)
+
+    const followingCountPromise = supabase
+    .from('follows')
+    .select('*', {count: 'exact', head: true})
+    .eq('follower_id', userId)
+
+    const [userDataResult, followerCountResult, followingCountResult] = await Promise.all([
+        userDataPromise,
+        followerCountPromise,
+        followingCountPromise
+    ])
+
+
+    const {data: userData, error: errorUserData} = userDataResult;
+    const {count: followerCount, error: errorFollowerCount} = followerCountResult;
+    const {count: followingCount, error: errorFollowingCount} = followingCountResult;
+
+    if(errorUserData || errorFollowerCount || errorFollowingCount){
+        console.error('supabase error while fetching user data:', errorUserData || errorFollowerCount || errorFollowingCount)
+        return res.status(500).json({error: 'supabase error while fetching user data'});
     }
-    return res.status(200).json({userData});
+    return res.status(200).json({userData, followerCount, followingCount});
 })
 
 router.get('/check-user', async(req, res) => {
@@ -401,18 +424,13 @@ router.get('/journals', async(req, res) => {
             *, users(*), 
             like_count: likes(count),
             comment_count: comments(count), 
-            bookmark_count: bookmarks(count),
-            
-            has_liked: likes!left(user_id),
-            has_bookmarked: bookmarks!left(user_id)`
+            bookmark_count: bookmarks(count)
+            `
         )
         
         .order('created_at', {ascending: false})
         .limit(parseInt(limit) + 1)
 
-        // if(userId && !userId === 'undefined'){
-        //     query = query.eq('likes.user_id', userId).eq('bookmarks.user_id', userId);
-        // }
 
         //if cursor(before) exist then fetch only the older post;
         if(before) {
@@ -420,16 +438,56 @@ router.get('/journals', async(req, res) => {
         }
 
         const {data, error} = await query;
+        const journalIds = data?.map(journal => journal.id);
+
+        let userLikesPromise;
+        let userBookmarksPromise;
+
+        if(journalIds){
+            userLikesPromise = supabase
+            .from('likes')
+            .select('journal_id')
+            .in('journal_id', journalIds)
+            .eq('user_id', userId)
+
+            userBookmarksPromise = supabase
+            .from('bookmarks')
+            .select('journal_id')
+            .in('journal_id', journalIds)
+            .eq('user_id', userId)
+
+
+        }
+        
+        const [userLikes, userBookmarks] = await Promise.all([
+            userLikesPromise, userBookmarksPromise
+        ])
+        
+       
+        const {data: userLikesResult, error: errorUserLikes} =  userLikes
+        const {data: userBookmarksResult, error: errorUserBookmarks} =  userBookmarks
 
         if(error) {
             console.error('supabase error while fetching journals', error)
             return res.status(500).json({error: 'error fetching journals'});
         }
 
+        if(errorUserLikes || errorUserBookmarks){
+            console.error('supabase error while fetching likes and bookmarks:', errorUserLikes.message || errorUserBookmarks.message)
+            return res.status(500).json({error: 'supabase error while feching user likes and bookmarks'})
+        }
+        
+        const userLikesSet = new Set(
+            userLikesResult?.map( r => r.journal_id) || []
+        )
+        const userBookmarksSet = new Set(
+            userBookmarksResult?.map(r => r.journal_id) || []
+        )
+
         const formatted = data.map((journal) => ({
             ...journal,
-            has_liked: Array.isArray(journal.has_liked) && journal.has_liked.length > 0,
-            has_bookmarked: Array.isArray(journal.has_bookmarked) && journal.has_bookmarked.length > 0
+            has_liked: userLikesSet?.has(journal.id),
+            has_bookmarked: userBookmarksSet?.has(journal.id)
         }))
 
         const hasMore = data.length > parseInt(limit);
@@ -679,6 +737,105 @@ router.get('/getBookmarks', async(req, res) => {
         bookmarks: slicedData, 
         hasMore: hasMore, 
         totalBookmarks: before ? null : count});
+})
+
+router.post('/addFollows', upload, async(req, res) => {
+    console.log(req.body);
+    const {followerId, followingId} = req.body;
+    
+
+    if(!followerId && !followingId) return res.status(400).json({error: 'No followerId and followingId'});
+
+    const {data: existing, error: errorExisting} = await supabase
+    .from('follows')
+    .select('*')
+    .eq('follower_id', followerId)
+    .eq('following_id', followingId)
+    .maybeSingle();
+
+    if(errorExisting){
+        console.error('error:', errorExisting);
+        return res.status(500).json({error: 'supabase error while checking the existence of the followerId and followingId'});
+    }
+    if(existing){
+        const {data: removeData, error: errorRemoveData} = await supabase
+        .from('follows')
+        .delete()
+        .eq('follower_id', followerId)
+        .eq('following_id', followingId)
+
+        if(errorRemoveData){
+            console.error('error:', errorRemoveData);
+            return res.status(500).json({error: 'supabase error while removing the existing follows data'});
+        }
+         return res.status(200).json({message: 'deleted follows data'});
+
+    } else {
+            const data = {
+                follower_id: followerId,
+                following_id: followingId,
+            }
+
+            const {data: inserData,  error: errorInserData} = await supabase
+            .from('follows')
+            .insert(data)
+
+            if(errorInserData){
+                console.error('error:', errorInserData)
+                return res.status(500).json({error: 'error inserting follows data'});
+            }
+
+            return res.status(200).json({message: 'success'});
+        }
+
+})
+
+router.get('/getFollowsData', async(req, res) => {
+    const {userId, loggedInUserId} = req.query;
+    if(!userId && !loggedInUserId) return res.status(400).json({error: 'userId or loggendUserId is undefined '});
+    console.log(req.query)
+    try {
+        const followersCountPromise = supabase
+        .from('follows')
+        .select('*', {count: 'exact', head: true})
+        .eq('following_id', userId);
+
+        const followingCountPromise = supabase
+        .from('follows')
+        .select('*', {count: 'exact', head: true})
+        .eq('follower_id', userId)
+
+        const isFollowingPromise = supabase
+        .from('follows')
+        .select('*', {count: 'exact', head: true})
+        .eq('follower_id', loggedInUserId)
+        .eq('following_id', userId)
+
+        const [followersCountResult, followingsCountResult, isFollowingResult] = await Promise.all([
+            followersCountPromise, followingCountPromise, isFollowingPromise,
+        ])
+
+
+        const {count: followersCount, error: errorFollowers } = followersCountResult;
+        const {count: followingsCount, error: errorFollowings} = followingsCountResult;
+        const {count: isFollowingCount, error: errorIsfollowing} = isFollowingResult;
+
+        if(errorFollowers || errorFollowings || errorIsfollowing){
+            console.error('supabase error while fetching data:', errorFollowers, errorFollowings, errorIsfollowing)
+            return res.status(500).json({error: 'failed to fetch data'})
+        }
+
+        return res.status(200).json({
+            followersCount: followersCount,
+            followingsCount: followingsCount,
+            isFollowing: isFollowingCount > 0
+        })
+
+    } catch (error) {
+        console.error('Error in Promise.all:', error);
+        res.status(500).json({ error: 'An unexpected error occurred' });
+    }
+
 })
 
 export default router;
