@@ -437,7 +437,6 @@ router.get('/journals', async(req, res) => {
             bookmark_count: bookmarks(count)
             `
         )
-        
         .order('created_at', {ascending: false})
         .limit(parsedLimit + 1)
 
@@ -517,7 +516,7 @@ router.get('/journals', async(req, res) => {
 })
 
 router.get('/userJournals', async(req, res) => {
-    const {userId, limit = 5, before} = req.query;
+    const {limit = 5, before, userId} = req.query;
 
     if(!userId){
         console.error('error: userId is undefined')
