@@ -448,7 +448,7 @@ router.get('/journals', async(req, res) => {
 
         const {data, error} = await query;
 
-        if(!data && data.length === 0) {
+        if(!data || data.length === 0) {
             return res.status(200).json({data: [], hasMore: false});
         }
         
@@ -532,6 +532,7 @@ router.get('/userJournals', async(req, res) => {
     .from('journals')
     .select(`
         *, 
+        users(name, image_url, user_email, id),
         like_count: likes(count),
         comment_count: comments(count),
         bookmark_count: bookmarks(count)
@@ -551,7 +552,7 @@ router.get('/userJournals', async(req, res) => {
         return res.status(500).json({error: 'supabase error while fetching user journals'})
     }
 
-    if(!journals && journals.length === 0){
+    if(!journals || journals.length === 0){
         return res.status(200).json({data: [], hasMore: false})
     }
 
