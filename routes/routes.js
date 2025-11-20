@@ -604,6 +604,30 @@ router.get('/userJournals', async(req, res) => {
 
 })
 
+router.delete('/deleteJournal/:journalId', async(req, res) => {
+    const {journalId} = req.params;
+    const token = req.headers?.authorization?.split(' ')[1];
+    if(!journalId){
+        comments.error('journalId is undefined');
+        return res.status(400).json({error: 'journalId is required'})
+    }
+    if(!token){
+        console.error('token is undefined')
+        return res.status(400).json({error: 'not auhtorized'})
+    }
+
+    const {error: errorDeletingData} = await supabase
+    .from('journals')
+    .delete()
+    .eq('id', journalId)
+
+    if(errorDeletingData){
+        console.error(errorDeletingData);
+        return res.status(500).json({error: 'supabase error while deleting the journal'});
+    }
+    return res.status(200).json({message: 'success'})
+})
+
 
 router.post('/like', async(req, res) =>{
     const {journalId} = req.body;
