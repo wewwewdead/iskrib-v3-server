@@ -413,6 +413,67 @@ router.post('/save-journal', upload, async(req, res) => {
     }
 })
 
+router.post('/update-journal', upload, async(req, res) => {
+    try {
+        const {content, title, journalId} = req.body;
+        const token = req.headers?.authorization?.split(' ')[1];
+
+        if(!token){
+            console.error('error: token validation is undefined')
+            return res.status(400).json({error: 'not authorized'});
+        }
+        if(!content || !title || !journalId){
+            console.error('error: content, title or journalId is missing');
+            return res.status(400).json({error: 'content, tilte or journalId is undefined'});
+        }
+
+        const parsedData = ParseContent(content);
+
+        const authDataPromise = supabase.auth.getUser(token);
+        const embeddingPromise = GenerateEmbeddings(title, parsedData.wholeText);
+
+        const [auhtDataResult, embeddingResult] = await Promise.all([
+            authDataPromise,
+            embeddingPromise
+        ])
+
+        const {data: authData, error: errorAuthData} = auhtDataResult
+        const embeddings = embeddingResult;
+
+        if(!Array.isArray(embeddings)){
+            throw new Error('embedding generation failed');
+        }
+
+        if(errorAuthData){
+            console.error('supabase error while checking authorization:', errorAuthData.message);
+            return res.status(500).json({error: 'error in validating user authorization'});
+        }
+
+        const userId = authData?.user?.id;
+
+        const journaldData = {
+            content: content,
+            title: title,
+            embeddings: embeddings
+        }
+
+        const {data, error} = await supabase
+        .from('journals')
+        .update(journaldData)
+        .eq('id', journalId)
+        .eq('user_id', userId)
+
+        if(error) {
+            console.error('error updating journal:', error.message)
+            return res.status(500).json({error: 'supabase error while updating the columns in journals table'})
+        }
+
+        return res.status(200).json({message: 'journal was updated successfuly'})
+    } catch (error) {
+        console.error('Failed to save editor state:', error);
+    }
+})
+
 router.get('/journals', async(req, res) => {
     const {limit = 5, before, userId} = req.query;
     // console.log(userId);
@@ -922,7 +983,7 @@ router.post('/addFollows', upload, async(req, res) => {
 router.get('/getFollowsData', async(req, res) => {
     const {userId, loggedInUserId} = req.query;
     if(!userId && !loggedInUserId) return res.status(400).json({error: 'userId or loggendUserId is undefined '});
-    console.log(req.query)
+    // console.log(req.query)
     try {
         const followersCountPromise = supabase
         .from('follows')
