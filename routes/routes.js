@@ -84,7 +84,6 @@ router.get('/getUserData', async(req, res) => {
         return res.status(400).json({error: 'No userId provided'});
     }
 
-
     const userDataPromise = supabase
     .from('users')
     .select('*')
@@ -691,10 +690,12 @@ router.delete('/deleteJournal/:journalId', async(req, res) => {
 
 
 router.post('/like', async(req, res) =>{
-    const {journalId} = req.body;
+    const {journalId, receiverId, senderImageUrl, sendername, senderEmail} = req.body;
     const token = req.headers?.authorization?.split(' ')[1];
     if(!token) return res.status(400).json({error: 'Not Authorized'});
-    if(!journalId) return res.status(400).json({error: 'No post Id!'})
+    if(!journalId) return res.status(400).json({error: 'No post Id!'});
+    if(!receiverId) return res.status(400).json({error: 'No receiver id!'});
+    if(!sendername || !senderEmail || !senderImageUrl) return res.status(400).json({error: 'No sender data'})
 
     const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
 
@@ -704,6 +705,7 @@ router.post('/like', async(req, res) =>{
     };
 
     const userId = authData.user.id;
+    const isOwnContent = userId === receiverId
 
     const {data: existingLike, error: errorExistingLike} = await supabase
     .from('likes')
@@ -718,24 +720,63 @@ router.post('/like', async(req, res) =>{
     }
 
     if(!existingLike){  
-        const {data, error} = await supabase
+        const inserNotifPromise = supabase
+        .from('notifications')
+        .insert({
+            sender_id: userId,
+            receiver_id: receiverId,
+            sender_image_url: senderImageUrl,
+            sender_name: sendername,
+            sender_email: senderEmail,
+            journal_id: journalId,
+            type: 'like',
+            read: false
+        })
+
+        const inserLikePromise = supabase
         .from('likes')
         .insert({user_id: userId, journal_id: journalId})
 
-        if(error) return res.status(500).json({error: 'supabase error while checking existing like'});
+        const [insertNotif, insertLike] = await Promise.all([
+            isOwnContent ? Promise.resolve({error: null}) : inserNotifPromise,
+            inserLikePromise,
+        ])
+
+        const {data: insertNotifcationResult, error: errorInsertNotificationResult} = insertNotif;
+
+        const {data: insertLikeResult, error: errorInserLikeResult} = insertLike;
+
+        if(errorInsertNotificationResult || errorInserLikeResult) {
+            console.log('supabase error:', errorInserLikeResult || errorInsertNotificationResult);
+            return res.status(500).json({error: 'error inserting data into likes table or notifications table'});
+        }
 
         return res.status(200).json({message: 'liked'});
     } else {
-        const userId = authData.user.id;
-        const {data, error} = await supabase
+        const deleteNotifPromise = supabase
+        .from('notifications')
+        .delete()
+        .eq('receiver_id', receiverId)
+        .eq('journal_id', journalId)
+        .eq('type', 'like')
+
+        const deleteLikePromise = await supabase
         .from('likes')
         .delete()
         .eq('user_id', userId)
         .eq('journal_id', journalId)
 
-        if(error) {
-            console.error('supabase error while inserting/ deleing like', error)
-            return res.status(500).json({error: 'error add like'});
+        const [deleteNotif, deleteLike] = await Promise.all([
+            isOwnContent ? Promise.resolve({error: null}) : deleteNotifPromise,
+            deleteLikePromise
+        ])
+
+        const {error: errorDeleteNotif} = deleteNotif;
+        const {error: errorDeleteLike} = deleteLike;
+
+        if(errorDeleteLike || errorDeleteNotif) {
+            console.error('supabase error while deleting notifcation or likes', errorDeleteLike || errorDeleteNotif)
+            return res.status(500).json({error: 'error deleting like or notif'});
         }
 
         return res.status(200).json({message: 'unliked'});
@@ -747,11 +788,14 @@ router.post('/addComment',upload, async(req, res) =>{
     const token = req.headers?.authorization?.split(' ')[1];
     if(!token) return res.status(400).json({error: 'Not authorized'});
     console.log(req.body)
-    const {comments, postId} = req.body;
+    const {comments, postId, senderName, senderEmail, senderImageUrl, receiverId} = req.body;
 
     if(!comments || !postId){
         return res.status(400).json({error: 'no postId or Comment recieve'});
     }
+    if(!receiverId) return res.status(400).json({error: 'no receiverId'});
+    if(!senderName || !senderEmail, !senderImageUrl) return res.status(500).json({error: "no sender's data"});
+
     const{data: authData, errorAuthData} = await supabase.auth.getUser(token)
 
     if(errorAuthData) {
@@ -759,17 +803,43 @@ router.post('/addComment',upload, async(req, res) =>{
         return res.status(500).json({error: 'error checking user authentication'})
     };
 
-    const {data: addComment, error: errorAddComment} = await supabase
-    .from('comments')
-    .insert({
-        comment: comments,
-        post_id: postId,
-        user_id: authData?.user?.id
-    })
+    const isOwnContent = receiverId === authData?.user?.id;
 
-    if(errorAddComment){
-        console.error('supabase error while inserting comments', errorAddComment)
-        return res.status(500).json({error: 'error adding comments'});
+    const insertNotifPromise = supabase
+    .from('notifications')
+    .insert(
+        {
+            sender_id: authData?.user.id,
+            receiver_id: receiverId,
+            sender_image_url: senderImageUrl,
+            sender_email: senderEmail,
+            sender_name: senderName,
+            journal_id: postId,
+            read: false,
+            type: 'comment'
+        }
+    )
+    const insertCommentPromise = supabase
+    .from('comments')
+    .insert(
+        {
+            comment: comments,post_id: postId,
+            user_id: authData?.user?.id
+        }
+    )
+
+    const [insertNotif, insertComment] = await Promise.all([
+        isOwnContent ? Promise.resolve({error: null}) : insertNotifPromise,
+        insertCommentPromise,
+    ])
+
+    const {data: addComment, error: errorAddComment} = insertComment;
+
+    const {data: insertNotifResul, error: errorAddNotif} = insertNotif;
+
+    if(errorAddComment || errorAddNotif){
+        console.error('supabase error while inserting comments or notif', errorAddComment || errorAddNotif)
+        return res.status(500).json({error: 'error adding comments or notif'});
     } 
         
 
@@ -1027,5 +1097,71 @@ router.get('/getFollowsData', async(req, res) => {
     }
 
 })
+
+router.get('/getCountNotifications', async(req, res) =>{
+    const {userId} = req.query;
+    if(!userId) return res.attachment(400).json({error: 'no userid'});
+
+    const {count, error} = await supabase
+    .from('notifications')
+    .select('id', {count: 'exact', head: true})
+    .eq('receiver_id', userId)
+    .eq('read', false)
+
+    if(error){
+        console.error('error fetching count in notifications table', error);
+        return res.status(500).json({error: 'error fecthing count in notifications table'});
+    }
+
+    return res.status(200).json({count: count});
+}) 
+
+router.get('/getNotifications', async(req, res) =>{
+    const {before, limit, userId} = req.query;
+    if(!userId) return res.status(400).json({error: 'No userId!'});
+
+    let notifQueryPromise = supabase
+    .from('notifications')
+    .select('*')
+    .eq('receiver_id', userId)
+    .order('created_at', {ascending: false})
+    .limit(parseInt(limit) + 1) //peek ahead for detecting if has
+
+    if(before){
+        notifQueryPromise = notifQueryPromise.lt('created_at', before);
+    }
+
+    const countNotifQueryPromise = supabase
+    .from('notifications')
+    .select('id', {count: 'exact', head: true})
+    .eq('receiver_id', userId)
+    .eq('read', false)
+
+    const [notifQuery, countNotifQuery] = await Promise.all([
+        notifQueryPromise,
+        countNotifQueryPromise
+    ])
+
+    const {data: notifQueryResult, error: errorNotifQuery} = notifQuery;
+    const {count: countNotifQueryResult, error: errorCountNotif} = countNotifQuery;
+
+    if(errorNotifQuery || errorCountNotif){
+        console.error('error while fetching data from notifcation table:', errorCountNotif || errorNotifQuery);
+        return res.status(500).json({error: 'error fetching data from notifcation table'});
+    }
+
+    const hasMore = notifQueryResult.length > parseInt(limit);
+    const slicedData = hasMore ? notifQueryResult.slice(0, parseInt(limit)) : notifQueryResult;
+
+    return res.status(200).json(
+        {
+            hasMore: hasMore,
+            data: slicedData,
+            unreadCount: countNotifQueryResult ?? 0
+        }
+    )
+
+})
+
 
 export default router;
