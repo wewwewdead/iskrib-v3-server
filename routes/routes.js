@@ -787,7 +787,7 @@ router.post('/like', async(req, res) =>{
 router.post('/addComment',upload, async(req, res) =>{
     const token = req.headers?.authorization?.split(' ')[1];
     if(!token) return res.status(400).json({error: 'Not authorized'});
-    console.log(req.body)
+    // console.log(req.body)
     const {comments, postId, senderName, senderEmail, senderImageUrl, receiverId} = req.body;
 
     if(!comments || !postId){
@@ -1131,22 +1131,14 @@ router.get('/getNotifications', async(req, res) =>{
         notifQueryPromise = notifQueryPromise.lt('created_at', before);
     }
 
-    const countNotifQueryPromise = supabase
-    .from('notifications')
-    .select('id', {count: 'exact', head: true})
-    .eq('receiver_id', userId)
-    .eq('read', false)
-
-    const [notifQuery, countNotifQuery] = await Promise.all([
+    const [notifQuery] = await Promise.all([
         notifQueryPromise,
-        countNotifQueryPromise
     ])
 
     const {data: notifQueryResult, error: errorNotifQuery} = notifQuery;
-    const {count: countNotifQueryResult, error: errorCountNotif} = countNotifQuery;
 
-    if(errorNotifQuery || errorCountNotif){
-        console.error('error while fetching data from notifcation table:', errorCountNotif || errorNotifQuery);
+    if(errorNotifQuery){
+        console.error('error while fetching data from notifcation table:', errorNotifQuery);
         return res.status(500).json({error: 'error fetching data from notifcation table'});
     }
 
@@ -1157,7 +1149,6 @@ router.get('/getNotifications', async(req, res) =>{
         {
             hasMore: hasMore,
             data: slicedData,
-            unreadCount: countNotifQueryResult ?? 0
         }
     )
 
