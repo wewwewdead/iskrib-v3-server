@@ -1122,10 +1122,14 @@ router.get('/getNotifications', async(req, res) =>{
 
     let notifQueryPromise = supabase
     .from('notifications')
-    .select('*')
+    .select(
+        `*,
+        journals!journal_id(title, content)
+        `
+    )
     .eq('receiver_id', userId)
     .order('created_at', {ascending: false})
-    .limit(parseInt(limit) + 1) //peek ahead for detecting if has
+    .limit(parseInt(limit) + 1) //peek ahead for detecting if hasMore
 
     if(before){
         notifQueryPromise = notifQueryPromise.lt('created_at', before);
