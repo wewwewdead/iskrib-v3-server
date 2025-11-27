@@ -1,4 +1,4 @@
-import express, { json } from "express";
+import express, { json, Router } from "express";
 import supabase from "../services/supabase.js";
 import multer from "multer";
 import sharp from 'sharp';
@@ -1124,7 +1124,7 @@ router.get('/getNotifications', async(req, res) =>{
     .from('notifications')
     .select(
         `*,
-        journals!journal_id(title, content)
+        journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count))
         `
     )
     .eq('receiver_id', userId)
@@ -1135,9 +1135,7 @@ router.get('/getNotifications', async(req, res) =>{
         notifQueryPromise = notifQueryPromise.lt('created_at', before);
     }
 
-    const [notifQuery] = await Promise.all([
-        notifQueryPromise,
-    ])
+    const notifQuery = await notifQueryPromise;
 
     const {data: notifQueryResult, error: errorNotifQuery} = notifQuery;
 
@@ -1146,8 +1144,48 @@ router.get('/getNotifications', async(req, res) =>{
         return res.status(500).json({error: 'error fetching data from notifcation table'});
     }
 
+    const journalIds = notifQueryResult.map((notif) => notif.journal_id);
+
+    let hasLikedPromise;
+    let hasBookmarkedPromise;
+    if(journalIds){
+        hasLikedPromise = supabase
+        .from('likes')
+        .select('journal_id')
+        .in('journal_id', journalIds)
+        .eq('user_id', userId)
+
+        hasBookmarkedPromise = supabase
+        .from('bookmarks')
+        .select('journal_id')
+        .in('journal_id', journalIds)
+        .eq('user_id', userId)  
+    }
+
+    const [hasLiked, hasBookMarked] = await Promise.all([
+            hasLikedPromise,
+            hasBookmarkedPromise
+        ])
+
+    const {data: hasLikedResult, error: errorHasLikedResult} = hasLiked;
+    const {data: hasBookMarkedResult, error: errorHasBookmarkedResult} = hasBookMarked;
+
+
+    if(errorHasLikedResult || errorHasBookmarkedResult){
+        console.error('supabase error while fetching data:', errorHasLikedResult || errorHasBookmarkedResult);
+    }
+
+    const userHasLikedSet = new Set(hasLikedResult.map((likes) => likes.journal_id) || []);
+    const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmarks) => bookmarks.journal_id) || []);
+
+    const formatted = notifQueryResult.map((notif) => ({
+        ...notif,
+        hasLiked: userHasLikedSet?.has(notif.journal_id),
+        hasBookMarked: userHasBookmarkedSet?.has(notif.journal_id)
+    }))
+
     const hasMore = notifQueryResult.length > parseInt(limit);
-    const slicedData = hasMore ? notifQueryResult.slice(0, parseInt(limit)) : notifQueryResult;
+    const slicedData = hasMore ? formatted.slice(0, parseInt(limit)) : formatted;
 
     return res.status(200).json(
         {
@@ -1156,6 +1194,37 @@ router.get('/getNotifications', async(req, res) =>{
         }
     )
 
+})
+
+router.post('/readNotification', async(req, res) => {
+    const {notifId} = req.body;
+    const token = req.headers?.authorization?.split(' ')[1];
+    if(!token){
+        console.error('no token!')
+        return res.status(400).json({error: 'Not authorized'})
+    }
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData){
+        console.error('error authorizing user')
+        return res.status(500).json({error: 'failed to authorized user'})
+    }
+    const userId = authData?.user?.id;
+
+    const {data : readNotification, error: errorReadNotification} = await supabase
+    .from('notifications')
+    .update({
+        read: true
+    })
+    .eq('receiver_id', userId)
+    .eq('id', notifId)
+
+    if(errorReadNotification){
+        console.error('error updating the notification read: boolean', errorReadNotification)
+        return res.status(500).json({error: 'error updating the notification read: boolean'})
+    }
+
+    return res.status(200).json({message: 'notification was read!'})
 })
 
 
