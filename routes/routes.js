@@ -498,6 +498,7 @@ router.get('/journals', async(req, res) => {
             `
         )
         .order('created_at', {ascending: false})
+        .order('id', {ascending: false})
         .limit(parsedLimit + 1)
 
 
@@ -599,6 +600,7 @@ router.get('/userJournals', async(req, res) => {
         `)
     .eq('user_id', userId)
     .order('created_at', {ascending: false})
+    .order('id', {ascending: false})
     .limit(parsedLimit + 1)
 
     if(before){
@@ -695,7 +697,7 @@ router.post('/like', async(req, res) =>{
     if(!token) return res.status(400).json({error: 'Not Authorized'});
     if(!journalId) return res.status(400).json({error: 'No post Id!'});
     if(!receiverId) return res.status(400).json({error: 'No receiver id!'});
-    if(!sendername || !senderEmail || !senderImageUrl) return res.status(400).json({error: 'No sender data'})
+    if(!sendername || !senderEmail) return res.status(400).json({error: 'No sender data'})
 
     const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
 
@@ -794,7 +796,7 @@ router.post('/addComment',upload, async(req, res) =>{
         return res.status(400).json({error: 'no postId or Comment recieve'});
     }
     if(!receiverId) return res.status(400).json({error: 'no receiverId'});
-    if(!senderName || !senderEmail, !senderImageUrl) return res.status(500).json({error: "no sender's data"});
+    if(!senderName || !senderEmail) return res.status(500).json({error: "no sender's data"});
 
     const{data: authData, errorAuthData} = await supabase.auth.getUser(token)
 
@@ -1081,7 +1083,7 @@ router.get('/getFollowsData', async(req, res) => {
         const {count: isFollowingCount, error: errorIsfollowing} = isFollowingResult;
 
         if(errorFollowers || errorFollowings || errorIsfollowing){
-            console.error('supabase error while fetching data:', errorFollowers, errorFollowings, errorIsfollowing)
+            console.error('supabase error while fetching data:', errorFollowers.message, errorFollowings.message, errorIsfollowing.message)
             return res.status(500).json({error: 'failed to fetch data'})
         }
 
@@ -1117,8 +1119,22 @@ router.get('/getCountNotifications', async(req, res) =>{
 }) 
 
 router.get('/getNotifications', async(req, res) =>{
-    const {before, limit, userId} = req.query;
-    if(!userId) return res.status(400).json({error: 'No userId!'});
+    const {before, limit} = req.query;
+
+    const token = req.headers?.authorization?.split(' ')[1];
+    if(!token){
+        console.error('not authorized')
+        return res.status(400).json({error:'not authorized'})
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData){
+        console.error('error:', errorAuthData.message);
+        return res.status(500).json({error: 'error on checking authorization'})
+    }
+
+    const userId = authData?.user?.id
 
     let notifQueryPromise = supabase
     .from('notifications')
@@ -1129,6 +1145,7 @@ router.get('/getNotifications', async(req, res) =>{
     )
     .eq('receiver_id', userId)
     .order('created_at', {ascending: false})
+    .order('id', {ascending: false})
     .limit(parseInt(limit) + 1) //peek ahead for detecting if hasMore
 
     if(before){
@@ -1225,6 +1242,129 @@ router.post('/readNotification', async(req, res) => {
     }
 
     return res.status(200).json({message: 'notification was read!'})
+})
+router.get('/getUnreadNotification', async(req, res) => {
+    const token = req.headers?.authorization?.split(' ')[1];
+    const {limit, before} = req.query;
+    if(!token){
+        console.error('no token provided!')
+        return res.status(400).json({error: 'not authorized'})
+    }
+    const{ data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData){
+        console.error('error checking user authorization:', errorAuthData.message)
+        return res.status(500).json({error: 'error checking authorization'})
+    }
+
+    const parsedLimit = parseInt(limit);
+    if(isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 20){
+        return res.status(400).json({error: 'limit must be between 1 and 20'});
+    }
+
+    const receiverId = authData?.user?.id;
+    let query;
+
+    query = supabase
+    .from('notifications')
+    .select('*, journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count))')
+    .eq('receiver_id', receiverId)
+    .eq('read', false)
+    .order('created_at', {ascending: false})
+    .order('id', {ascending: false})
+
+    if(before){
+        query = query.lt('created_at', before);
+    }
+
+    const {data: getUnreadNotification, error: errorGetUnreadNotification} = await query;
+
+    if(errorGetUnreadNotification){
+        console.error('supabase error:', errorGetUnreadNotification.message);
+        return res.status(500).json({error: 'supabase error while getting unread notification'})
+    }
+    
+    const journalIds = getUnreadNotification.map((unreadNotification) => unreadNotification.journal_id) || [];
+
+    let hasLikedPromise;
+    let hasBookmarkedPromise;
+    if(journalIds){
+        hasLikedPromise = supabase
+        .from('likes')
+        .select('journal_id')
+        .eq('user_id', receiverId)
+        .in('journal_id', journalIds)
+
+        hasBookmarkedPromise = supabase
+        .from('bookmarks')
+        .select('journal_id')
+        .eq('user_id', receiverId)
+        .in('journal_id', journalIds)
+    }
+    const [hasLiked, hasBookMarked] = await Promise.all([
+        hasLikedPromise,
+        hasBookmarkedPromise
+    ])
+
+    const {data: hasLikedResult, error: errorHasLikedResult} = hasLiked;
+    const {data: hasBookMarkedResult, error: errorHasBookmarkedResult} = hasBookMarked;
+
+    if(errorHasLikedResult || errorHasBookmarkedResult){
+        console.error('error', errorHasLikedResult || errorHasBookmarkedResult)
+        return res.status(500).json({error: 'supabase error on likes or bookmarks table'})
+    }
+
+    const userHasLikedSet = new Set(hasLikedResult.map((like) => like.journal_id) || []) ;
+    const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmark) => bookmark.journal_id) || []);
+
+    const formatted = getUnreadNotification.map((notification) =>({
+        ...notification,
+        hasLiked: userHasLikedSet?.has(notification?.journal_id),
+        hasBookMarked: userHasBookmarkedSet?.has(notification?.journal_id)
+    }))
+
+    const hasMore = getUnreadNotification?.length > parsedLimit;
+    const slicedData = hasMore ? formatted.slice(0, parsedLimit) : formatted;
+
+    return res.status(200).json({
+        data: slicedData,
+        hasMore: hasMore
+    })
+})
+
+router.delete('/deleteNotification/:notifId', async(req, res) =>{
+    const token = req.headers?.authorization?.split(' ')[1];
+    const {notifId} = req.params;
+
+    if(!token){
+        console.error('no token is provided!')
+        return res.status(400).json({error: 'not auhtorized'})
+    }
+    if(!notifId){
+        console.error('no notification id provided')
+        return res.status(400).json({error: 'not notifId'})
+    }
+
+    const {data : authData, error: errorAuthData} = await supabase.auth.getUser(token);
+    
+    if(errorAuthData){
+        console.error('error checking authorization:', errorAuthData);
+        return res.status(500).json({error: 'Error checking user authorization'});
+    }
+    const userId = authData?.user?.id;
+
+    const {data: deleteNotif, error: errorDeleteNotif} = await  supabase
+    .from('notifications')
+    .delete()
+    .eq('receiver_id', userId)
+    .eq('id', notifId)
+
+    if(errorDeleteNotif){
+        console.error('supabase error while deleting notification:', errorDeleteNotif.message);
+        return res.status(500).json({error: 'supabase error while deleting notification'})
+    }
+
+    return res.status(200).json({message: 'success'});
 })
 
 
