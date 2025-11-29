@@ -1134,7 +1134,7 @@ router.get('/getNotifications', async(req, res) =>{
         return res.status(500).json({error: 'error on checking authorization'})
     }
 
-    const userId = authData?.user?.id
+    const userId = authData?.user?.id;
 
     let notifQueryPromise = supabase
     .from('notifications')
