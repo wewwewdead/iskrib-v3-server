@@ -4,10 +4,9 @@ import router from "./routes/routes.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const url = process.env.DOMAIN || 'http://localhost:5173';
 
 app.use(cors({
-    origin: [url],
+    origin: ['https://iskrib.com','https://iskrib-v3-client-side.onrender.com', 'http://localhost:5173'],
     methods: 'GET,POST,PUT,DELETE',
     credentials: true
 }))
