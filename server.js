@@ -4,7 +4,7 @@ import router from "./routes/routes.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const backendUrl = process.env.BACKEND_URL || 'http://localhost:5173';
+const backendUrl = process.env.DOMAIN || 'http://localhost:5173';
 
 app.use(cors({
     origin: [backendUrl],
