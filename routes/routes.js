@@ -669,8 +669,6 @@ router.get('/userJournals', async(req, res) => {
 router.get('/visitedUserJournals', async(req, res) => {
     const {limit = 5, before, userId, loggedInUserId} = req.query;
 
-    console.log(loggedInUserId)
-
     if(!userId){
         console.error('error: userId is undefined')
         return res.status(400).json({error: 'no userId'})
