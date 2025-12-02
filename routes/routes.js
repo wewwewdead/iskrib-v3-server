@@ -666,6 +666,98 @@ router.get('/userJournals', async(req, res) => {
 
 })
 
+router.get('/visitedUserJournals', async(req, res) => {
+    const {limit = 5, before, userId, loggedInUserId} = req.query;
+
+    console.log(loggedInUserId)
+
+    if(!userId){
+        console.error('error: userId is undefined')
+        return res.status(400).json({error: 'no userId'})
+    }
+
+    const parsedLimit = parseInt(limit);
+    if(isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 20){
+        return res.status(400).json({error: 'limit must be between 1 and 20'})
+    }
+
+    let query = supabase
+    .from('journals')
+    .select(`
+        *, 
+        users(name, image_url, user_email, id),
+        like_count: likes(count),
+        comment_count: comments(count),
+        bookmark_count: bookmarks(count)
+        `)
+    .eq('user_id', userId)
+    .order('created_at', {ascending: false})
+    .order('id', {ascending: false})
+    .limit(parsedLimit + 1)
+
+    if(before){
+        query = query.lt('created_at', before);
+    }
+
+    const {data: journals, error: errorJournals} = await query;
+
+    if(errorJournals){
+        console.error('supabase error:', errorJournals);
+        return res.status(500).json({error: 'supabase error while fetching user journals'})
+    }
+
+    if(!journals || journals.length === 0){
+        return res.status(200).json({data: [], hasMore: false})
+    }
+
+    const journalIds = journals.map((journal) => journal.id);
+
+    let userLikesPromise;
+    let userBookmarksPromise;
+
+    if(journalIds){
+        userLikesPromise = supabase
+        .from('likes')
+        .select('journal_id')
+        .in('journal_id', journalIds)
+        .eq('user_id', loggedInUserId)
+
+        userBookmarksPromise = supabase
+        .from('bookmarks')
+        .select('journal_id')
+        .in('journal_id', journalIds)
+        .eq('user_id', loggedInUserId)
+    }
+
+    const [userLikes, userBookmarks] = await Promise.all([
+        userLikesPromise, userBookmarksPromise
+    ])
+
+    const {data: userLikesResult, error: errorUserLikeResult} = userLikes;
+    const {data: userBookmarksResult, error: errorBookmarksResult} = userBookmarks;
+
+    if(errorUserLikeResult || errorBookmarksResult) {
+        console.error('supabase error while fetching userlikes and userbookmarks', errorUserLikeResult || errorBookmarksResult);
+        return res.status(500).json({error: 'error fetching user likes and user bookmarks'})
+    }
+
+    //lookup sets
+    const userLikesSet = new Set(userLikesResult.map((journal) => journal.journal_id) || []);
+    const userBookmarksSet= new Set(userBookmarksResult.map((bookmark) => bookmark.journal_id) || []);
+
+    const formatted = journals.map((journal) => ({
+        ...journal,
+        has_liked: userLikesSet.has(journal.id),
+        has_bookmarked: userBookmarksSet.has(journal.id)
+     }))
+
+     const hasMore = journals.length > parsedLimit;
+     const slicedData = hasMore ? formatted.slice(0, parsedLimit) : formatted;
+
+     return res.status(200).json({data: slicedData, hasMore: hasMore})
+
+})
+
 router.delete('/deleteJournal/:journalId', async(req, res) => {
     const {journalId} = req.params;
     const token = req.headers?.authorization?.split(' ')[1];
