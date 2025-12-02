@@ -1458,4 +1458,44 @@ router.delete('/deleteNotification/:notifId', async(req, res) =>{
 })
 
 
+router.post('/addViews', upload, async(req, res) => {
+    const {journalId} = req.body;
+    const token = req.headers?.authorization?.split(' ')[1];
+
+    if(!journalId) {
+        console.error('not journalId');
+        return res.status(400).json({error: 'no journalId!'});
+    }
+    if(!token){
+        console.error('error: no token provided!');
+        return res.status(400).json({error: 'no token!'});
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData){
+        console.error('error:', errorAuthData);
+        return res.status(500).json({error: 'supabase error while checking user authentication'})
+    }
+
+    const viewerId = authData?.user?.id;
+
+    const {data: addViews, error: errorAddViews} = await supabase
+    .from('journal_views')
+    .insert({
+        viewer_id: viewerId,
+        journal_id: journalId
+    })
+
+    if(errorAddViews){
+        console.error('error:', errorAddViews.message);
+        return res.status(500).json({error: 'error adding views'});
+    }
+
+    await supabase.rpc('increment_journal_view', {j_post_id: journalId});
+
+    return res.status(200).json({message: 'success!'});
+
+})
+
 export default router;
