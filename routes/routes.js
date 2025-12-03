@@ -499,6 +499,7 @@ router.get('/journals', async(req, res) => {
         )
         .order('created_at', {ascending: false})
         .order('id', {ascending: false})
+        .eq('privacy', 'public')
         .limit(parsedLimit + 1)
 
 
@@ -689,6 +690,7 @@ router.get('/visitedUserJournals', async(req, res) => {
         bookmark_count: bookmarks(count)
         `)
     .eq('user_id', userId)
+    .eq('privacy', 'public')
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)
@@ -1496,6 +1498,41 @@ router.post('/addViews', upload, async(req, res) => {
 
     return res.status(200).json({message: 'success!'});
 
+})
+
+router.post('/updatePrivacy', upload, async(req, res) => {
+    const token = req.headers?.authorization?.split(' ')[1];
+    const {journalId, privacy} = req.body;
+    // console.log(privacy)
+
+    if(!token){
+        console.error('error: no token!')
+        return res.status(400).json({error: 'no token!'})
+    }
+    if(!journalId){
+        console.error('no journalId')
+        return res.status(400).json({error: 'no journalId'});
+    }
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+    
+    if(errorAuthData){
+        console.error('supabase error while checking authorization:', errorAuthData.message);
+        return res.status(500).json({error: 'supabase error while checking authorization'})
+    }
+    const userId = authData?.user?.id;
+
+    const {data: updatePrivacy, error: errorUpdatePrivacy} = await supabase
+    .from('journals')
+    .update({privacy: privacy})
+    .eq('id', journalId)
+    .eq('user_id', userId)
+
+    if(errorUpdatePrivacy){
+        console.error('updating journal privacy error:', errorUpdatePrivacy);
+        return res.status(500).json({error: 'error updating journal privacy'});
+    }
+
+    return res.status(200).json({message: 'success'});
 })
 
 export default router;
