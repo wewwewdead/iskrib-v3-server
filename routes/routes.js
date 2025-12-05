@@ -784,12 +784,11 @@ router.delete('/deleteJournal/:journalId', async(req, res) => {
 
 
 router.post('/like', async(req, res) =>{
-    const {journalId, receiverId, senderImageUrl, sendername, senderEmail} = req.body;
+    const {journalId, receiverId,} = req.body;
     const token = req.headers?.authorization?.split(' ')[1];
     if(!token) return res.status(400).json({error: 'Not Authorized'});
     if(!journalId) return res.status(400).json({error: 'No post Id!'});
     if(!receiverId) return res.status(400).json({error: 'No receiver id!'});
-    if(!sendername || !senderEmail) return res.status(400).json({error: 'No sender data'})
 
     const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
 
@@ -819,9 +818,6 @@ router.post('/like', async(req, res) =>{
         .insert({
             sender_id: userId,
             receiver_id: receiverId,
-            sender_image_url: senderImageUrl,
-            sender_name: sendername,
-            sender_email: senderEmail,
             journal_id: journalId,
             type: 'like',
             read: false
@@ -882,13 +878,12 @@ router.post('/addComment',upload, async(req, res) =>{
     const token = req.headers?.authorization?.split(' ')[1];
     if(!token) return res.status(400).json({error: 'Not authorized'});
     // console.log(req.body)
-    const {comments, postId, senderName, senderEmail, senderImageUrl, receiverId} = req.body;
+    const {comments, postId, receiverId} = req.body;
 
     if(!comments || !postId){
         return res.status(400).json({error: 'no postId or Comment recieve'});
     }
     if(!receiverId) return res.status(400).json({error: 'no receiverId'});
-    if(!senderName || !senderEmail) return res.status(500).json({error: "no sender's data"});
 
     const{data: authData, errorAuthData} = await supabase.auth.getUser(token)
 
@@ -905,9 +900,6 @@ router.post('/addComment',upload, async(req, res) =>{
         {
             sender_id: authData?.user.id,
             receiver_id: receiverId,
-            sender_image_url: senderImageUrl,
-            sender_email: senderEmail,
-            sender_name: senderName,
             journal_id: postId,
             read: false,
             type: 'comment'
@@ -1232,7 +1224,8 @@ router.get('/getNotifications', async(req, res) =>{
     .from('notifications')
     .select(
         `*,
-        journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count))
+        journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count)),
+        users!sender_id(name, user_email, image_url, id)
         `
     )
     .eq('receiver_id', userId)
@@ -1359,7 +1352,11 @@ router.get('/getUnreadNotification', async(req, res) => {
 
     query = supabase
     .from('notifications')
-    .select('*, journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count))')
+    .select(`
+        *, 
+        journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count)),
+        users!sender_id(name, user_email, image_url, id)
+        `)
     .eq('receiver_id', receiverId)
     .eq('read', false)
     .order('created_at', {ascending: false})
