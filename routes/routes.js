@@ -1532,4 +1532,117 @@ router.post('/updatePrivacy', upload, async(req, res) => {
     return res.status(200).json({message: 'success'});
 })
 
+router.post('/addCollections', upload, async(req, res) => {
+    const token = req.headers?.authorization?.split(' ')[1];
+    let {journalIds, title, description} = req.body;
+
+    if(typeof journalIds === 'string'){
+        journalIds = journalIds.split(',').map(id => id.trim());
+    }
+
+    if(!token){
+        console.error('no token provided!')
+        return res.status(400).json({error: 'no token!'})
+    }
+    if(!title || !description){
+        console.error('no collections title or description')
+        return res.status(400).json({error: 'no collections title or description'})
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData){
+        console.error('error getting authorization', errorAuthData.message);
+        return res.status(500).json({error: 'supabase error while checking authorization'})
+    }
+
+    const userId = authData.user.id;
+
+    try {
+        const {data: collections, error: errorCollections} = await supabase
+        .from('collections')
+        .insert({
+            name: title,
+            description: description,
+            is_public: false,
+            user_id: userId
+        })
+        .select()
+        .single()
+
+        if(errorCollections){
+            console.error('error inserting data to database', errorCollections.message)
+            return res.status(500).json({error: 'error inserting data to database'})
+        }
+
+        if(journalIds.length > 0){
+            const collectionJournals = journalIds.map(journalId => ({
+                collection_id: collections.id,
+                journal_id: journalId,
+            }))
+
+            const {data: linkedJournals, error: errorLinkedJournals} = await supabase
+            .from('collection_journal')
+            .insert(collectionJournals)
+            .select();
+
+            if(errorLinkedJournals){
+                console.error('error inserting linked journals', errorLinkedJournals.message);
+                return res.status(500).json({error: 'error inserting linkedjournals'})
+            }
+        }
+
+        return res.status(200).json({message: 'success'})
+    } catch (error) {
+        console.error('Unexpected error:', error);
+        return res.status(500).json({
+            error: 'Internal server error',
+            details: error.message
+        });
+    }
+})
+
+router.get('/getCollections', async(req, res) => {
+    const {userId, before, limit} = req.query;
+    
+    if(!userId){
+        console.error('error: no collectionid or userid')
+        return res.status(400).json({error: 'no collection id or user id'})
+    }
+
+    const parsedLimit = parseInt(limit);
+    if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
+        console.error('limit should be between 1 to 10')
+        return res.status(400).json({error: 'limit should only between 1 - 10'})
+    }
+
+    let query = supabase
+    .from('collections')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', {ascending: false})
+    .order('id', {ascending: false})
+    .limit(parsedLimit + 1)
+
+    if(before){
+        query = query.lt('created_at', before);
+    }
+
+    const {data: getCollections, error: errorGetCollections} = await query;
+
+    if(errorGetCollections){
+        console.error('error getting collections:', errorGetCollections.message);
+        return res.status(500).json({error: 'error getting collections'})
+    }
+
+    if(!getCollections || getCollections.length === 0){
+        return res.status(200).json({data: [], hasMore: false})
+    }
+
+    const hasMore = getCollections.length > parsedLimit;
+    const slicedData = hasMore ?  getCollections.splice(0, parsedLimit) : getCollections;
+
+    return res.status(200).json({data: slicedData, hasMore: hasMore})
+})
+
 export default router;
