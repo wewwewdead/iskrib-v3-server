@@ -1537,7 +1537,7 @@ router.post('/addCollections', upload, async(req, res) => {
     let {journalIds, title, description} = req.body;
 
     if(typeof journalIds === 'string'){
-        journalIds = journalIds.split(',').map(id => id.trim());
+        journalIds = journalIds.split(',').map(id => id.trim()).filter(id => id !== '');
     }
 
     if(!token){
@@ -1575,7 +1575,7 @@ router.post('/addCollections', upload, async(req, res) => {
             return res.status(500).json({error: 'error inserting data to database'})
         }
 
-        if(journalIds.length > 0){
+        if(Array.isArray(journalIds) && journalIds.length > 0){
             const collectionJournals = journalIds.map(journalId => ({
                 collection_id: collections.id,
                 journal_id: journalId,
@@ -1643,6 +1643,44 @@ router.get('/getCollections', async(req, res) => {
     const slicedData = hasMore ?  getCollections.splice(0, parsedLimit) : getCollections;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore})
+})
+
+router.get('/getCollectionJournals', async(req, res) =>{
+    const {collectionId, before, limit} = req.query;
+    if(!collectionId) {
+        console.error('no collectionId')
+        return res.status(400).json({error: 'no collection ID'});
+    }
+    const parsedLimit = parseInt(limit);
+
+    if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
+        console.error('limit should only between 1-10');
+        return res.status(400).json({error: 'Limit should only between 1-10'})
+    }
+
+    let query = supabase
+    .from('collection_journal')
+    .select('added_at, journals(title, created_at, id,content, users(id, image_url, user_email, name))')
+    .eq('collection_id', collectionId)
+    .limit(parsedLimit + 1)
+    .order('added_at', {ascending: false})
+
+    if(before){
+        query = query.lt('added_at', before);
+    }
+
+    const {data: journals, error: errorJournals} = await query;
+
+    if(errorJournals){
+        console.error('supabase error while fetching collection journals:', errorJournals.message);
+        return res.status(500).json({error: 'supabase error while fetching collection journals'});
+    }
+
+    const hasMore = journals.length > parsedLimit;
+    const slicedData = hasMore ? journals.splice(0, parsedLimit) : journals;
+
+    return res.status(200).json({data: slicedData, hasMore: hasMore})
+
 })
 
 export default router;
