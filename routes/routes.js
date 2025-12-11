@@ -1626,17 +1626,25 @@ router.get('/getCollections', async(req, res) => {
 })
 
 router.get('/getCollectionJournals', async(req, res) =>{
+    const token = req.headers?.authorization?.split(' ')[1];
     const {collectionId, before, limit} = req.query;
     if(!collectionId) {
         console.error('no collectionId')
         return res.status(400).json({error: 'no collection ID'});
     }
+    if(!token){
+        console.error('not token!')
+        return res.status(400).json({error: 'no token!'})
+    }
+
     const parsedLimit = parseInt(limit);
 
     if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
         console.error('limit should only between 1-10');
         return res.status(400).json({error: 'Limit should only between 1-10'})
     }
+
+    let authorization = supabase.auth.getUser(token);
 
     let query = supabase
     .from('collection_journal')
@@ -1649,15 +1657,58 @@ router.get('/getCollectionJournals', async(req, res) =>{
         query = query.lt('added_at', before);
     }
 
-    const {data: journals, error: errorJournals} = await query;
+    const [journaResult, authorizationResult] = await Promise.all([
+        query, authorization
+    ])
 
-    if(errorJournals){
-        console.error('supabase error while fetching collection journals:', errorJournals.message);
-        return res.status(500).json({error: 'supabase error while fetching collection journals'});
+    const {data: journals, error: errorJournals} = journaResult;
+    const {data: authData, error: errorAuthData} = authorizationResult;
+
+    if(errorJournals || errorAuthData){
+        console.error('supabase error while fetching data:', errorJournals.message || errorAuthData.message);
+        return res.status(500).json({error: 'supabase error while fetching data'});
+    }
+    const userId = authData?.user?.id;
+    const journalIds = journals?.map((journal) => journal.journals.id) || [];
+
+    let hasLikedPromise;
+    let hasBookmarkedPromise;
+
+    if(journalIds){
+        hasLikedPromise = supabase
+        .from('likes')
+        .select('journal_id')
+        .in('journal_id', journalIds)
+        .eq('user_id', userId)
+
+        hasBookmarkedPromise = supabase
+        .from('bookmarks')
+        .select('journal_id')
+        .in('journal_id', journalIds)
+        .eq('user_id', userId)
     }
 
+    const [hasLikedResult, hasBookMarkedResult] = await Promise.all([hasLikedPromise, hasBookmarkedPromise]);
+
+    const {data: hasLiked, error: errorHasLiked} = hasLikedResult;
+    const {data: hasBookMarked, error: errorHasbookmarked} = hasBookMarkedResult;
+
+    if(errorHasLiked || errorHasbookmarked){
+        console.error('error fetching data',  errorHasLiked || errorHasbookmarked);
+        return res.status(500).json({error: 'error fetching data'});
+    }
+
+    const userHasLikedSet = new Set(hasLiked.map((journal) => journal.journal_id) || []);
+    const userHasBookmarkedSet = new Set(hasBookMarked.map((bookmark) => bookmark.journal_id) || []);
+
+    const formatted  = journals.map((journal) => ({
+        ...journal,
+        hasLiked: userHasLikedSet?.has(journal?.journals.id),
+        hasBookMarked: userHasBookmarkedSet?.has(journal?.journals.id)
+    }))
+
     const hasMore = journals.length > parsedLimit;
-    const slicedData = hasMore ? journals.splice(0, parsedLimit) : journals;
+    const slicedData = hasMore ? formatted.splice(0, parsedLimit) : formatted;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore})
 
