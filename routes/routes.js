@@ -6,6 +6,7 @@ import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
 import ParseContent from "../utils/parseData.js";
 
 const router = express.Router();
+
 const upload = multer({
     storage: multer.memoryStorage(),
     limits: {fileSize: 10 * 1024 * 1024},
@@ -153,27 +154,6 @@ router.post('/upload-user-data',upload, async(req, res) =>{
     let webBuffer = null
     let publicUrl = null
     if(image){
-        // webBuffer = await sharp(image.buffer)
-        // .webp({quality: 80})
-        // .toBuffer();
-
-        // const folderName = `user_${authData.user.id}`
-        // const fileName = `${authData?.user.id}_${crypto.randomUUID()}.webp`;
-        // const filePath = `${folderName}/${fileName}`;
-
-        // const {data: uploadImage, error: errorUploadImage} = await supabase.storage
-        // .from('avatars')
-        // .upload(filePath, webBuffer, {
-        //     contentType: 'image/webp',
-        //     upsert: true
-        // });
-        // if(errorUploadImage){
-        //     return res.status(500).json({error: errorUploadImage})
-        // }
-
-        // const {data: dataUrl} = supabase.storage
-        // .from('avatars')
-        // .getPublicUrl(filePath);
         const dataUrl = await imageUploader(image, userId, 'avatars');
 
         publicUrl = dataUrl;
