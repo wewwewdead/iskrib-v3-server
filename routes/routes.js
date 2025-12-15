@@ -1648,7 +1648,7 @@ router.get('/getCollectionJournals', async(req, res) =>{
 
     let query = supabase
     .from('collection_journal')
-    .select('added_at, journals(title, created_at, id,content, users(id, image_url, user_email, name))')
+    .select('added_at, journals(title, created_at, id,content, users(id, image_url, user_email, name), comments!post_id(count), bookmarks!journal_id(count), likes!journal_id(count))')
     .eq('collection_id', collectionId)
     .limit(parsedLimit + 1)
     .order('added_at', {ascending: false})
