@@ -1564,7 +1564,6 @@ router.post('/addCollections', upload, async(req, res) => {
             const {data: linkedJournals, error: errorLinkedJournals} = await supabase
             .from('collection_journal')
             .insert(collectionJournals)
-            .select();
 
             if(errorLinkedJournals){
                 console.error('error inserting linked journals', errorLinkedJournals.message);
@@ -1580,6 +1579,54 @@ router.post('/addCollections', upload, async(req, res) => {
             details: error.message
         });
     }
+})
+
+router.post('/updateCollection', upload, async(req, res) =>{
+    let {journalIds, collectionId} = req.body;
+    const token = req.headers?.authorization?.split(' ')[1];
+
+    if(!token){
+        console.error('no token')
+        return res.status(400).json({error: 'no token!'})
+    }
+
+    if(!collectionId){
+        console.error('no collection id')
+        return res.status(400).json({error: 'no collection id'})
+    }
+
+    if(typeof journalIds === 'string'){
+        journalIds = journalIds.split(',').map((id) => id.trim()).filter((id) => id !== '');
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData){
+        console.error('not authorized', errorAuthData.message);
+        return res.status(500).json({error: 'supabase error while authorizing user'})
+    }
+
+    if(Array.isArray(journalIds) && journalIds.length > 0){
+        const ids = journalIds.map((journalId) => ({
+            journal_id: journalId,
+            collection_id: collectionId
+        }))
+        
+        console.log(ids);
+
+        const {error: errorUpdatingCollection} = await supabase
+            .from('collection_journal')
+            .insert(ids)
+
+        
+        if(errorUpdatingCollection){
+            console.error('error updating collections', errorUpdatingCollection.message)
+            return res.status(500).json({eror: 'error updating collections'})
+        }
+    }
+
+    return res.status(200).json({message: 'success'})
+
 })
 
 router.get('/getCollections', async(req, res) => {
@@ -1620,7 +1667,7 @@ router.get('/getCollections', async(req, res) => {
     }
 
     const hasMore = getCollections.length > parsedLimit;
-    const slicedData = hasMore ?  getCollections.splice(0, parsedLimit) : getCollections;
+    const slicedData = hasMore ?  getCollections.slice(0, parsedLimit) : getCollections;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore})
 })
@@ -1628,6 +1675,7 @@ router.get('/getCollections', async(req, res) => {
 router.get('/getCollectionJournals', async(req, res) =>{
     const token = req.headers?.authorization?.split(' ')[1];
     const {collectionId, before, limit} = req.query;
+
     if(!collectionId) {
         console.error('no collectionId')
         return res.status(400).json({error: 'no collection ID'});
@@ -1648,13 +1696,13 @@ router.get('/getCollectionJournals', async(req, res) =>{
 
     let query = supabase
     .from('collection_journal')
-    .select('added_at, journals(title, created_at, id,content, users(id, image_url, user_email, name), comments!post_id(count), bookmarks!journal_id(count), likes!journal_id(count))')
+    .select('id, journals(title, created_at, id,content, users(id, image_url, user_email, name), comments!post_id(count), bookmarks!journal_id(count), likes!journal_id(count))')
     .eq('collection_id', collectionId)
     .limit(parsedLimit + 1)
-    .order('added_at', {ascending: false})
+    .order('id', {ascending: false})
 
     if(before){
-        query = query.lt('added_at', before);
+        query = query.lt('id', before);
     }
 
     const [journaResult, authorizationResult] = await Promise.all([
@@ -1708,10 +1756,78 @@ router.get('/getCollectionJournals', async(req, res) =>{
     }))
 
     const hasMore = journals.length > parsedLimit;
-    const slicedData = hasMore ? formatted.splice(0, parsedLimit) : formatted;
+    const slicedData = hasMore ? formatted.slice(0, parsedLimit) : formatted;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore})
 
+})
+
+router.get('/getNotCollectedPost', async(req, res) => {
+    const {before, limit, userId, collectionId} = req.query;
+
+    const parsedLimit = parseInt(limit);
+    if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
+        console.error('limit should be between 1 to 10');
+        return res.status(500).json({error: 'limit should be between 1 to 10'});
+    }
+
+    if(!userId){
+        console.error('no userId!');
+        return res.status(400).json({error: 'no userId'});
+    }
+    if(!collectionId){
+        console.error('no collectionId');
+        return res.status(400).json({error: 'no collectionId'})
+    }
+
+    let query = supabase
+    .from('journals')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', {ascending: false})
+    .limit(parsedLimit + 1)
+
+    if(before){
+        query = query.lt('created_at', before);
+    }
+
+    const {data: journals, error: errorJournals} = await query;
+    
+
+    if(errorJournals){
+        console.error('error:', errorJournals.message);
+        return res.status(500).json({error: 'error fetching journals or collectionJournals Ids'})
+    }
+    
+    const journalIds = journals.map((journal) => journal.id) || [];
+
+    let collectedJournals;
+    if(journalIds){
+        collectedJournals = supabase
+        .from('collection_journal')
+        .select('journal_id')
+        .in('journal_id', journalIds)
+        .eq('collection_id', collectionId)
+    }
+
+    const {data: collectedJournalIds, error: errorCollectedJournalIds} = await collectedJournals;
+
+    if(errorCollectedJournalIds){
+        console.error('error:', errorCollectedJournalIds.message);
+        return res.status(500).json({error: 'error fetching collected journals'})
+    }
+
+    const journalIdSet = new Set(collectedJournalIds.map((j) => j.journal_id)  || []);
+
+    const formatted = journals.map((journal) => ({
+        ...journal,
+        hasCollected: journalIdSet.has(journal.id)
+    }))
+
+    const hasMore = journals.length > parsedLimit;
+    const slicedData = hasMore ? formatted.slice(0, parsedLimit) : formatted;
+
+    return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
 
 export default router;
