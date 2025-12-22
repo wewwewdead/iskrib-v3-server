@@ -1681,7 +1681,7 @@ router.get('/getCollectionJournals', async(req, res) =>{
         return res.status(400).json({error: 'no collection ID'});
     }
     if(!token){
-        console.error('not token!')
+        console.error('no token!')
         return res.status(400).json({error: 'no token!'})
     }
 
