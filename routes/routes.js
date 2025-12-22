@@ -1830,4 +1830,40 @@ router.get('/getNotCollectedPost', async(req, res) => {
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
 
+router.delete('/deleteCollection/:collectionId', async(req, res) =>{
+    const token = req.headers?.authorization?.split(' ')[1];
+    const {collectionId} = req.params;
+
+    if(!token){
+        console.error('no token!')
+        return res.status(400).json({error: 'no token!'});
+    }
+    if(!collectionId){
+        console.error('no collectionId');
+        return res.status(400).json({error: 'no collectionId'});
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData){
+        console.error('supabase error:', errorAuthData.message);
+        return res.status(500).json({error: 'error authorizing user!'})
+    }
+
+    const userId = authData.user.id;
+
+    const {data: deleteCollection, error: errorDeleteCollection} = await supabase
+    .from('collections')
+    .delete()
+    .eq('id', collectionId)
+    .eq('user_id', userId)
+
+    if(errorDeleteCollection){
+        console.error('supabase error while deleting collections', errorDeleteCollection.message);
+        return res.status(500).json({error: 'error deleting colletion'});
+    }
+
+    return res.status(200).json({message: 'delete successful'});
+})
+
 export default router;
