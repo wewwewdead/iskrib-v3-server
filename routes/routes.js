@@ -1544,7 +1544,6 @@ router.post('/addCollections', upload, async(req, res) => {
         .insert({
             name: title,
             description: description,
-            is_public: false,
             user_id: userId
         })
         .select()
@@ -1864,6 +1863,29 @@ router.delete('/deleteCollection/:collectionId', async(req, res) =>{
     }
 
     return res.status(200).json({message: 'delete successful'});
+})
+
+router.post('/updatePrivacyCollection', upload, async(req, res) => {
+    const {collectionId, userId, isPublic} = req.body;
+
+    if(!collectionId && !userId){
+        console.error('no collectionId or userId');
+        return res.status(400).json({error: 'error no collectionId or userId'});
+    }
+
+    const {data: updatePrivacy, error: errorUpdatePrivacy} = await supabase
+    .from('collections')
+    .update({is_public: isPublic})
+    .eq('user_id', userId)
+    .eq('id', collectionId)
+
+    if(errorUpdatePrivacy){
+        console.error('error updating privacy:', errorUpdatePrivacy.message);
+        return res.status(500).json({error: 'error updating privacy'})
+    }
+
+    return res.status(200).json({message: 'success'})
+
 })
 
 export default router;
