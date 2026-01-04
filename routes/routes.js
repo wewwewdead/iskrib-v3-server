@@ -457,10 +457,10 @@ router.get('/journals', async(req, res) => {
     const {limit = 5, before, userId} = req.query;
     // console.log(userId);
 
-    if(!userId) {
-        console.error('error: userId is undefined')
-        return res.status(400).json({error: 'no userId'})
-    }
+    // if(!userId) {
+    //     console.error('error: userId is undefined')
+    //     return res.status(400).json({error: 'no userId'})
+    // }
 
     const parsedLimit = parseInt(limit);
     if(isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 20){
@@ -1886,6 +1886,74 @@ router.post('/updatePrivacyCollection', upload, async(req, res) => {
 
     return res.status(200).json({message: 'success'})
 
+})
+
+router.post('/addOpinion', upload, async(req, res) =>{
+    const token = req.headers.authorization.split(' ')[1];
+    const {opinion} = req.body;
+    if(!token){
+        console.error('No token available')
+        return res.status(400).json({error: 'not authorized'})
+    }
+    if(!opinion || opinion.length > 280){
+        console.error('no opinion or opinion is over 280 characters');
+        return res.status(400).json({error: 'no opinion or opinion is over 280 characters'})
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData){
+        console.error('supabase error:', errorAuthData.message)
+        return res.status(500).json({error: 'supabase error'})
+    }
+
+    const userId= authData.user.id;
+
+    const {error} = await supabase
+    .from('opinions')
+    .insert({
+        user_id: userId,
+        opinion: opinion
+    })
+
+    if(error){
+        console.err('supabase error:', error.message);
+        return res.status(500).json({error: 'supabase error'})
+    }
+
+    return res.status(200).json({message: 'success'});
+})
+
+router.get('/getOpinions', async(req, res) => {
+    const {before, limit} = req.query;
+
+    const paresedLimit = parseInt(limit);
+    if(isNaN(paresedLimit || paresedLimit > 20 || paresedLimit < 1)) {
+        console.log('limit should be number or and it should not be between 1 - 20');
+        return res.status(400).json({error: 'limit should be number or and it should not be between 1 -10'});
+    }
+
+    let query = supabase
+    .from('opinions')
+    .select('*, users(image_url,name, user_email)')
+    .order('id', {ascending: false})
+    .limit(limit + 1)
+
+    if(before) {
+        query = query.lt('id', before);
+    }
+    
+    const {data: opinions, error: errorOpinions} = await query;
+
+    if(errorOpinions){
+        console.log('supabase error:', errorOpinions.message);
+        return res.status(500).json({error: 'supabase error on fetching opinions from database'});
+    }
+
+    const hasMore = opinions?.length > paresedLimit;
+    const slicedData =  hasMore ? opinions.splice(0, paresedLimit) : opinions;
+
+    return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
 
 export default router;
