@@ -1937,7 +1937,7 @@ router.get('/getOpinions', async(req, res) => {
     .from('opinions')
     .select('*, users(image_url,name, user_email)')
     .order('id', {ascending: false})
-    .limit(limit + 1)
+    .limit(paresedLimit + 1)
 
     if(before) {
         query = query.lt('id', before);
@@ -1952,6 +1952,95 @@ router.get('/getOpinions', async(req, res) => {
 
     const hasMore = opinions?.length > paresedLimit;
     const slicedData =  hasMore ? opinions.splice(0, paresedLimit) : opinions;
+
+    return res.status(200).json({data: slicedData, hasMore: hasMore});
+})
+
+router.get('/getMyOpinions', async(req, res) =>{
+    const {limit, before} = req.query;
+    const parsedLimit = parseInt(limit);
+
+    const token = req.headers?.authorization.split(' ')[1];
+    
+    if(!token){
+        console.error('No token available');
+        return res.status(400).json({error: 'No token available'});
+    }
+
+    if(isNaN(parsedLimit) || parsedLimit.length > 20 || parsedLimit.length < 1){
+        console.error('limit should be number and between 1 - 20');
+        return res.status(400).json({error:'limit should be number and between 1 - 20'});
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token)
+
+    if(errorAuthData){
+        console.error('supabase error while checking authorization', errorAuthData.message)
+        return res.status(500).json({errpr: 'supabase error while checking authorization'})
+    }
+
+    const userId = authData?.user.id;
+
+    let query = supabase
+    .from('opinions')
+    .select('*')
+    .order('id', {ascending: false})
+    .limit(parsedLimit + 1)
+    .eq('user_id', userId)
+
+    if(before){
+        query = query.lt('id', before) //limit or lt mieans it will start to fetch from the value of before 
+    }
+
+    const {data: opinionsData, error: errorOpinionsData} = await query;
+
+    if(errorOpinionsData){
+        console.error('supabase error while fetching opinions data:', errorOpinionsData.message);
+        return res.status(500).json({error: 'supabase error while fetching the users opinions'});
+    }
+
+    const hasMore = opinionsData.length > parsedLimit;
+    const slicedData = hasMore ? opinionsData.splice(0, parsedLimit) : opinionsData;
+
+    return res.status(200).json({data: slicedData, hasMore: hasMore});
+    
+})
+
+router.get('/getUserOpinions', async(req, res) =>{
+    const {limit, before, userId} = req.query;
+
+    const parsedLimit = parseInt(limit);
+
+    if(isNaN(parsedLimit) || parsedLimit > 20 || parsedLimit < 1){
+        console.error('limit should be number and not be greater than 20 or less than 1')
+        return res.status(400).json({error: 'limit should be number and not be greater than 20 or less than 1'});
+    }
+
+    if(!userId){
+        console.error('no user id!')
+        return res.status(400).json({error: 'no user id available!'});
+    }
+
+    let query = supabase
+    .from('opinions')
+    .select('*, users(name, user_email, image_url, id)')
+    .limit(parsedLimit + 1)
+    .eq('user_id', userId)
+    .order('id', {ascending: false})
+
+    if(before){
+        query = query.lt('id', before);
+    }
+
+    const {data: opinionsData, error: errorOpinionsData} = await query;
+
+    if(errorOpinionsData){
+        console.error('supabase error while fetching opinions:', errorOpinionsData.message);
+        return res.status(500).json({error: 'supabase error while fetching opinions'});
+    }
+
+    const hasMore = opinionsData.length > parsedLimit;
+    const slicedData = hasMore ? opinionsData.splice(0, parsedLimit) : opinionsData;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
