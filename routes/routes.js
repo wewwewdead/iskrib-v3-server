@@ -2008,7 +2008,6 @@ router.get('/getMyOpinions', async(req, res) =>{
 
 router.get('/getUserOpinions', async(req, res) =>{
     const {limit, before, userId} = req.query;
-
     const parsedLimit = parseInt(limit);
 
     if(isNaN(parsedLimit) || parsedLimit > 20 || parsedLimit < 1){
