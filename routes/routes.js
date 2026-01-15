@@ -924,8 +924,9 @@ router.get('/getComments', async(req, res) =>{
         
         let query = supabase
         .from('comments')
-        .select('*, users(name, image_url)')
+        .select('*, users(name, image_url, id)')
         .eq('post_id', postId)
+        .is('parent_id', null)
         .order('created_at', {ascending: false})
         .order('id', {ascending: false})
         .limit(parseInt(limit) + 1) //peek ahead +1, get 1 more data if the data in the table has more than the limit
@@ -937,7 +938,7 @@ router.get('/getComments', async(req, res) =>{
         const {data: comments, error: errorFetchComments} = await query;
         if(errorFetchComments){
             console.error('supabase error while fetching comments', errorFetchComments)
-            return res.status(500).json({error: 'failed to fect comments'});
+            return res.status(500).json({error: 'failed to fecth comments'});
         }
 
         const hasMore = comments.length > limit; // return true if it has peek ahead
@@ -2040,6 +2041,99 @@ router.get('/getUserOpinions', async(req, res) =>{
 
     const hasMore = opinionsData.length > parsedLimit;
     const slicedData = hasMore ? opinionsData.splice(0, parsedLimit) : opinionsData;
+
+    return res.status(200).json({data: slicedData, hasMore: hasMore});
+})
+
+router.post('/submitReply/:parent_id/:user_id/:post_id/:receiver_id',upload, async(req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    const {parent_id, user_id, receiver_id, post_id} = req.params;
+    const {reply} = req.body;
+
+    if(!token){
+        console.error('no token available')
+        return res.status(400).json({error: 'you are not authorized user'});
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+
+    if(errorAuthData){
+        console.error('supabase error while checking auhtorization:', errorAuthData.message);
+        return res.status(500).json({error: 'authorization error'});
+    }
+
+    const isOwner = authData?.user?.id === receiver_id
+
+    if(!parent_id || !user_id || !post_id){
+        console.error('no parent_id || user_id || post_id available')
+        return res.status(400).json({error: 'parent_id || user_id || post_id is missing'});
+    }
+    if(!reply || reply.length > 201 || typeof reply !== 'string'){
+        console.error('make sure the reply is a string and not over 200 characters');
+        return res.status(400).json({error: 'reply is not a string or maybe undefined'});
+    }
+
+    const insertReplyPromise = supabase
+    .from('comments')
+    .insert({post_id: post_id, user_id: user_id, comment: reply, parent_id: parent_id})
+
+    const insertNotifPromise = supabase
+    .from('notifications')
+    .insert({sender_id: user_id, receiver_id: receiver_id, type: 'reply', journal_id: post_id, read: false})  
+
+    const [insertNotif, insertReply] = await Promise.all([
+        isOwner ? Promise.resolve({error: null}) : insertNotifPromise, 
+        insertReplyPromise
+    ])
+
+
+    const {data: uploadReply, error: errorUploadReply} = insertReply;
+    const {data: notif, error: errorNotif} = insertNotif;
+
+    if(errorUploadReply || errorNotif){
+        console.error('supabase error:', errorUploadReply.message || errorNotif.message);
+        return res.status(500).json({error: 'supabase error'});
+    }
+
+    return res.status(200).json({message: 'success'});
+})
+
+router.get('/getPostReplies/:parent_id', async(req, res) => {
+    const {parent_id} = req.params;
+    const {limit, before} = req.query;
+    
+    if(!parent_id){
+        console.error('parent_id is undefined');
+        return res.status(400).json({error: 'parent_id is undefined'});
+    }
+
+    const parsedLimit = parseInt(limit);
+
+    if(isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 20){
+        console.error('limit should be intiger or it should be between 1 to 20');
+        return res.status(400).json({error: 'limit should be intiger or it should be between 1 to 20'});
+    }
+
+    let query = supabase
+    .from('comments')
+    .select('*, users(name, image_url, id, user_email)')
+    .eq('parent_id', parent_id)
+    .order('id', {ascending: false})
+    .limit(parsedLimit + 1)
+
+    if(before){
+        query = query.lt('id', before);
+    }
+
+    const {data: getPostReplies, error: getPostRepliesError} = await query;
+
+    if(getPostRepliesError){
+        console.error('supabase error while fetchind replies:', getPostRepliesError.message);
+        return res.status(500).json({error: 'supabase error while getting post replies'});
+    }
+
+    const hasMore = getPostReplies.length > parsedLimit;
+    const slicedData = hasMore ? getPostReplies.splice(0, parsedLimit) : getPostReplies;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
