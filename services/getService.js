@@ -108,7 +108,7 @@ export const getUserJournalsService = async(limit, before, userId) =>{
     .from('journals')
     .select(`
         *, 
-        users(name, image_url, user_email, id),
+        users(name, image_url, user_email, id, badge),
         like_count: likes(count),
         comment_count: comments(count),
         bookmark_count: bookmarks(count)
@@ -198,7 +198,7 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
     .from('journals')
     .select(`
         *, 
-        users(name, image_url, user_email, id),
+        users(name, image_url, user_email, id, badge),
         like_count: likes(count),
         comment_count: comments(count),
         bookmark_count: bookmarks(count)
@@ -294,19 +294,19 @@ export const getViewOpinionService = async(postId, userId) => {
 export const getCommentsService = async(postId, limit, before) => {
     if(!postId){
         console.error('postId is undefined');
-        return {status:400, error: 'postId is undefined'}
+        throw {status:400, error: 'postId is undefined'}
     }
 
     if(isNaN(limit) || limit > 20 || limit < 1){
         console.error('limit must be a intiger and not more than 20 or less than 1');
-        return {status: 400, error: 'limit must be a intiger and not more than 20 or less than 1'}
+        throw {status: 400, error: 'limit must be a intiger and not more than 20 or less than 1'}
     }
 
     const parsedLimit = parseInt(limit);
 
     let query = supabase
         .from('comments')
-        .select('*, users(name, image_url, id)')
+        .select('*, users(name, image_url, id, badge)')
         .eq('post_id', postId)
         .is('parent_id', null)
         .order('created_at', {ascending: false})
@@ -321,11 +321,49 @@ export const getCommentsService = async(postId, limit, before) => {
 
     if(errorFetchComments){
         console.error('supabase error while fetching comments:', errorFetchComments.message);
-        return {status: 500, error: 'supabase error while fetching comments'}
+        throw {status: 500, error: 'supabase error while fetching comments'}
     }
 
     const hasMore = comments.length > parsedLimit;
     const slicedData = hasMore ? comments.splice(0, parsedLimit) : comments;
 
     return {comments: comments, hasMore: hasMore};
+}
+
+export const getOpinionReplyService = async(parentId, limit, before) =>{
+    if(!parentId){
+        console.error('parentId is undefined');
+        throw {status: 400, error: 'parentId is undefined'};
+    }
+
+    if(isNaN(limit) || limit > 20 || limit < 1){
+        console.error('limit should be an integer and not more than 20 and less than 1');
+        throw {status: 400, error: 'limit should be an integer and not more than 20 and less than 1'};
+    }
+
+    const parsedLimit = parseInt(limit);
+
+    let query = supabase
+    .from('opinions')
+    .select('*, users(name, id, user_email, image_url, badge)')
+    .eq('parent_id', parentId)
+    .order('id', {ascending: false})
+    .limit(parsedLimit + 1)
+
+    if(before){
+        query = query.lt('id', before);
+    }
+    
+
+    const {data: replyData, error: errorReplyData} = await query;
+
+    if(errorReplyData){
+        console.error('supabase error:', errorReplyData.message);
+        throw {status: 500, error: 'supabase error while fetching opinions reply'}
+    }
+
+    const hasMore = replyData.length > parsedLimit;
+    const slicedData = hasMore ? replyData.splice(0, parsedLimit) : replyData;
+
+    return {data: slicedData, hasMore: hasMore};
 }

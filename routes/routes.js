@@ -7,10 +7,10 @@ import ParseContent from "../utils/parseData.js";
 import { verfifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
-import { updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
+import { addReplyOpinionController, updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController } from "../controller/deleteController.js";
-import { getCommentsController, getJournalsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
+import { getCommentsController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 
 const router = express.Router();
@@ -111,7 +111,7 @@ router.get('/getBookmarks', async(req, res) => {
         comment_count: comments(count),
         bookmark_count: bookmarks(count),
 
-        users(name, user_email, image_url),
+        users(name, user_email, image_url, badge),
 
         like_count: likes(count),
         has_liked: likes!left(user_id),
@@ -260,18 +260,25 @@ router.get('/getCountNotifications', async(req, res) =>{
     const {userId} = req.query;
     if(!userId) return res.attachment(400).json({error: 'no userid'});
 
-    const {count, error} = await supabase
-    .from('notifications')
-    .select('id', {count: 'exact', head: true})
-    .eq('receiver_id', userId)
-    .eq('read', false)
+    const [journalCount, opinionCount] = await Promise.all([
+        supabase
+            .from('notifications')
+            .select('id', {count: 'exact', head: true})
+            .eq('receiver_id', userId)
+            .eq('read', false),
+        supabase
+            .from('notification_opinions')
+            .select('id', {count: 'exact', head: true})
+            .eq('receiver_id', userId)
+            .eq('read', false)
+    ]);
 
-    if(error){
-        console.error('error fetching count in notifications table', error);
+    if(journalCount.error || opinionCount.error){
+        console.error('error fetching count in notifications table', journalCount.error || opinionCount.error);
         return res.status(500).json({error: 'error fecthing count in notifications table'});
     }
 
-    return res.status(200).json({count: count});
+    return res.status(200).json({count: (journalCount.count || 0) + (opinionCount.count || 0)});
 }) 
 
 router.get('/getNotifications', async(req, res) =>{
@@ -292,73 +299,86 @@ router.get('/getNotifications', async(req, res) =>{
 
     const userId = authData?.user?.id;
 
-    let notifQueryPromise = supabase
+    // Fetch a generous amount from both tables, then merge and paginate
+    const fetchLimit = parseInt(limit) + 1;
+
+    let journalQuery = supabase
     .from('notifications')
     .select(
         `*,
-        journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count)),
-        users!sender_id(name, user_email, image_url, id)
+        journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count), users(name, id, image_url, badge)),
+        users!sender_id(name, user_email, image_url, id, badge)
         `
     )
     .eq('receiver_id', userId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
-    .limit(parseInt(limit) + 1) //peek ahead for detecting if hasMore
+    .limit(fetchLimit)
+
+    let opinionQuery = supabase
+    .from('notification_opinions')
+    .select(
+        `*,
+        opinions!opinion_id(id, opinion, user_id, created_at, users(name, id, image_url, badge)),
+        users!sender_id(name, user_email, image_url, id, badge)
+        `
+    )
+    .eq('receiver_id', userId)
+    .order('created_at', {ascending: false})
+    .order('id', {ascending: false})
+    .limit(fetchLimit)
 
     if(before){
-        notifQueryPromise = notifQueryPromise.lt('created_at', before);
+        journalQuery = journalQuery.lt('created_at', before);
+        opinionQuery = opinionQuery.lt('created_at', before);
     }
 
-    const notifQuery = await notifQueryPromise;
+    const [journalResult, opinionResult] = await Promise.all([journalQuery, opinionQuery]);
 
-    const {data: notifQueryResult, error: errorNotifQuery} = notifQuery;
-
-    if(errorNotifQuery){
-        console.error('error while fetching data from notifcation table:', errorNotifQuery);
-        return res.status(500).json({error: 'error fetching data from notifcation table'});
+    if(journalResult.error){
+        console.error('error while fetching data from notification table:', journalResult.error);
+        return res.status(500).json({error: 'error fetching data from notification table'});
+    }
+    if(opinionResult.error){
+        console.error('error while fetching data from notification_opinions table:', opinionResult.error);
+        return res.status(500).json({error: 'error fetching data from notification_opinions table'});
     }
 
-    const journalIds = notifQueryResult.map((notif) => notif.journal_id);
+    const journalNotifs = (journalResult.data || []).map(n => ({...n, source: 'journal'}));
+    const opinionNotifs = (opinionResult.data || []).map(n => ({...n, source: 'opinion'}));
 
-    let hasLikedPromise;
-    let hasBookmarkedPromise;
-    if(journalIds){
-        hasLikedPromise = supabase
-        .from('likes')
-        .select('journal_id')
-        .in('journal_id', journalIds)
-        .eq('user_id', userId)
+    // Merge and sort by created_at descending
+    const merged = [...journalNotifs, ...opinionNotifs]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-        hasBookmarkedPromise = supabase
-        .from('bookmarks')
-        .select('journal_id')
-        .in('journal_id', journalIds)
-        .eq('user_id', userId)  
+    // Likes/bookmarks lookup only for journal notifications
+    const journalIds = merged.filter(n => n.source === 'journal').map(n => n.journal_id);
+
+    let hasLikedResult = [];
+    let hasBookMarkedResult = [];
+    if(journalIds.length > 0){
+        const [hasLiked, hasBookMarked] = await Promise.all([
+            supabase.from('likes').select('journal_id').in('journal_id', journalIds).eq('user_id', userId),
+            supabase.from('bookmarks').select('journal_id').in('journal_id', journalIds).eq('user_id', userId)
+        ]);
+
+        if(hasLiked.error || hasBookMarked.error){
+            console.error('supabase error while fetching data:', hasLiked.error || hasBookMarked.error);
+        }
+        hasLikedResult = hasLiked.data || [];
+        hasBookMarkedResult = hasBookMarked.data || [];
     }
 
-    const [hasLiked, hasBookMarked] = await Promise.all([
-            hasLikedPromise,
-            hasBookmarkedPromise
-        ])
+    const userHasLikedSet = new Set(hasLikedResult.map((likes) => likes.journal_id));
+    const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmarks) => bookmarks.journal_id));
 
-    const {data: hasLikedResult, error: errorHasLikedResult} = hasLiked;
-    const {data: hasBookMarkedResult, error: errorHasBookmarkedResult} = hasBookMarked;
-
-
-    if(errorHasLikedResult || errorHasBookmarkedResult){
-        console.error('supabase error while fetching data:', errorHasLikedResult || errorHasBookmarkedResult);
-    }
-
-    const userHasLikedSet = new Set(hasLikedResult.map((likes) => likes.journal_id) || []);
-    const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmarks) => bookmarks.journal_id) || []);
-
-    const formatted = notifQueryResult.map((notif) => ({
+    const formatted = merged.map((notif) => ({
         ...notif,
-        hasLiked: userHasLikedSet?.has(notif.journal_id),
-        hasBookMarked: userHasBookmarkedSet?.has(notif.journal_id)
+        hasLiked: notif.source === 'journal' ? userHasLikedSet.has(notif.journal_id) : false,
+        hasBookMarked: notif.source === 'journal' ? userHasBookmarkedSet.has(notif.journal_id) : false
     }))
 
-    const hasMore = notifQueryResult.length > parseInt(limit);
+    const hasMore = formatted.length > parseInt(limit);
     const slicedData = hasMore ? formatted.slice(0, parseInt(limit)) : formatted;
 
     return res.status(200).json(
@@ -371,7 +391,7 @@ router.get('/getNotifications', async(req, res) =>{
 })
 
 router.post('/readNotification', async(req, res) => {
-    const {notifId} = req.body;
+    const {notifId, source} = req.body;
     const token = req.headers?.authorization?.split(' ')[1];
     if(!token){
         console.error('no token!')
@@ -385,8 +405,10 @@ router.post('/readNotification', async(req, res) => {
     }
     const userId = authData?.user?.id;
 
+    const tableName = source === 'opinion' ? 'notification_opinions' : 'notifications';
+
     const {data : readNotification, error: errorReadNotification} = await supabase
-    .from('notifications')
+    .from(tableName)
     .update({
         read: true
     })
@@ -420,71 +442,84 @@ router.get('/getUnreadNotification', async(req, res) => {
     }
 
     const receiverId = authData?.user?.id;
-    let query;
+    const fetchLimit = parsedLimit + 1;
 
-    query = supabase
+    let journalQuery = supabase
     .from('notifications')
     .select(`
-        *, 
+        *,
         journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count)),
-        users!sender_id(name, user_email, image_url, id)
+        users!sender_id(name, user_email, image_url, id, badge)
         `)
     .eq('receiver_id', receiverId)
     .eq('read', false)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
+    .limit(fetchLimit)
+
+    let opinionQuery = supabase
+    .from('notification_opinions')
+    .select(`
+        *,
+        opinions!opinion_id(id, opinion, user_id, created_at),
+        users!sender_id(name, user_email, image_url, id, badge)
+        `)
+    .eq('receiver_id', receiverId)
+    .eq('read', false)
+    .order('created_at', {ascending: false})
+    .order('id', {ascending: false})
+    .limit(fetchLimit)
 
     if(before){
-        query = query.lt('created_at', before);
+        journalQuery = journalQuery.lt('created_at', before);
+        opinionQuery = opinionQuery.lt('created_at', before);
     }
 
-    const {data: getUnreadNotification, error: errorGetUnreadNotification} = await query;
+    const [journalResult, opinionResult] = await Promise.all([journalQuery, opinionQuery]);
 
-    if(errorGetUnreadNotification){
-        console.error('supabase error:', errorGetUnreadNotification.message);
+    if(journalResult.error){
+        console.error('supabase error:', journalResult.error.message);
         return res.status(500).json({error: 'supabase error while getting unread notification'})
     }
-    
-    const journalIds = getUnreadNotification.map((unreadNotification) => unreadNotification.journal_id) || [];
-
-    let hasLikedPromise;
-    let hasBookmarkedPromise;
-    if(journalIds){
-        hasLikedPromise = supabase
-        .from('likes')
-        .select('journal_id')
-        .eq('user_id', receiverId)
-        .in('journal_id', journalIds)
-
-        hasBookmarkedPromise = supabase
-        .from('bookmarks')
-        .select('journal_id')
-        .eq('user_id', receiverId)
-        .in('journal_id', journalIds)
-    }
-    const [hasLiked, hasBookMarked] = await Promise.all([
-        hasLikedPromise,
-        hasBookmarkedPromise
-    ])
-
-    const {data: hasLikedResult, error: errorHasLikedResult} = hasLiked;
-    const {data: hasBookMarkedResult, error: errorHasBookmarkedResult} = hasBookMarked;
-
-    if(errorHasLikedResult || errorHasBookmarkedResult){
-        console.error('error', errorHasLikedResult || errorHasBookmarkedResult)
-        return res.status(500).json({error: 'supabase error on likes or bookmarks table'})
+    if(opinionResult.error){
+        console.error('supabase error:', opinionResult.error.message);
+        return res.status(500).json({error: 'supabase error while getting unread opinion notification'})
     }
 
-    const userHasLikedSet = new Set(hasLikedResult.map((like) => like.journal_id) || []) ;
-    const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmark) => bookmark.journal_id) || []);
+    const journalNotifs = (journalResult.data || []).map(n => ({...n, source: 'journal'}));
+    const opinionNotifs = (opinionResult.data || []).map(n => ({...n, source: 'opinion'}));
 
-    const formatted = getUnreadNotification.map((notification) =>({
+    const merged = [...journalNotifs, ...opinionNotifs]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+    const journalIds = merged.filter(n => n.source === 'journal').map(n => n.journal_id);
+
+    let hasLikedResult = [];
+    let hasBookMarkedResult = [];
+    if(journalIds.length > 0){
+        const [hasLiked, hasBookMarked] = await Promise.all([
+            supabase.from('likes').select('journal_id').eq('user_id', receiverId).in('journal_id', journalIds),
+            supabase.from('bookmarks').select('journal_id').eq('user_id', receiverId).in('journal_id', journalIds)
+        ]);
+
+        if(hasLiked.error || hasBookMarked.error){
+            console.error('error', hasLiked.error || hasBookMarked.error)
+            return res.status(500).json({error: 'supabase error on likes or bookmarks table'})
+        }
+        hasLikedResult = hasLiked.data || [];
+        hasBookMarkedResult = hasBookMarked.data || [];
+    }
+
+    const userHasLikedSet = new Set(hasLikedResult.map((like) => like.journal_id));
+    const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmark) => bookmark.journal_id));
+
+    const formatted = merged.map((notification) =>({
         ...notification,
-        hasLiked: userHasLikedSet?.has(notification?.journal_id),
-        hasBookMarked: userHasBookmarkedSet?.has(notification?.journal_id)
+        hasLiked: notification.source === 'journal' ? userHasLikedSet.has(notification?.journal_id) : false,
+        hasBookMarked: notification.source === 'journal' ? userHasBookmarkedSet.has(notification?.journal_id) : false
     }))
 
-    const hasMore = getUnreadNotification?.length > parsedLimit;
+    const hasMore = formatted.length > parsedLimit;
     const slicedData = hasMore ? formatted.slice(0, parsedLimit) : formatted;
 
     return res.status(200).json({
@@ -496,6 +531,7 @@ router.get('/getUnreadNotification', async(req, res) => {
 router.delete('/deleteNotification/:notifId', async(req, res) =>{
     const token = req.headers?.authorization?.split(' ')[1];
     const {notifId} = req.params;
+    const {source} = req.query;
 
     if(!token){
         console.error('no token is provided!')
@@ -507,15 +543,17 @@ router.delete('/deleteNotification/:notifId', async(req, res) =>{
     }
 
     const {data : authData, error: errorAuthData} = await supabase.auth.getUser(token);
-    
+
     if(errorAuthData){
         console.error('error checking authorization:', errorAuthData);
         return res.status(500).json({error: 'Error checking user authorization'});
     }
     const userId = authData?.user?.id;
 
+    const tableName = source === 'opinion' ? 'notification_opinions' : 'notifications';
+
     const {data: deleteNotif, error: errorDeleteNotif} = await  supabase
-    .from('notifications')
+    .from(tableName)
     .delete()
     .eq('receiver_id', userId)
     .eq('id', notifId)
@@ -1027,7 +1065,7 @@ router.get('/getOpinions', async(req, res) => {
 
     let query = supabase
     .from('opinions')
-    .select('*, users(image_url,name, user_email)')
+    .select('*, users(image_url,name, user_email, badge)')
     .is('parent_id', null)
     .order('id', {ascending: false})
     .limit(paresedLimit + 1)
@@ -1115,7 +1153,7 @@ router.get('/getUserOpinions', async(req, res) =>{
 
     let query = supabase
     .from('opinions')
-    .select('*, users(name, user_email, image_url, id)')
+    .select('*, users(name, user_email, image_url, id, badge)')
     .limit(parsedLimit + 1)
     .eq('user_id', userId)
     .order('id', {ascending: false})
@@ -1208,7 +1246,7 @@ router.get('/getPostReplies/:parent_id', async(req, res) => {
 
     let query = supabase
     .from('comments')
-    .select('*, users(name, image_url, id, user_email)')
+    .select('*, users(name, image_url, id, user_email, badge)')
     .eq('parent_id', parent_id)
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)
@@ -1232,6 +1270,9 @@ router.get('/getPostReplies/:parent_id', async(req, res) => {
 
 router.get('/viewOpinion/:postId/:userId', getViewOpinionController);
 
-router.post('/addOpinionReply/:parent_id/:user_id/:receiver_id/:opinion_id', upload, addOpinionReplyController);
+router.post('/addOpinionReply/:parent_id/:user_id/:receiver_id', upload, addOpinionReplyController);
+
+router.get('/getOpinionReply/:parentId', getReplyOpinionsController);
+
 
 export default router;

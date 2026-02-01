@@ -41,11 +41,11 @@ export const addBoorkmarkController = async(req, res) =>{
 }
 
 export const addOpinionReplyController = async(req, res) =>{
-    const {parent_id, user_id, receiver_id, opinion_id} = req.params;
+    const {parent_id, user_id, receiver_id} = req.params;
     const {opinion} = req.body;
 
     try {
-        const response = await uploadOpinionReplyService(parent_id, opinion, user_id, receiver_id, opinion_id);
+        const response = await uploadOpinionReplyService(parent_id, opinion, user_id, receiver_id);
         return res.status(200).json(response);
     } catch (error) {
         console.error(error);

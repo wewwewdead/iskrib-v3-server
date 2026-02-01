@@ -210,7 +210,7 @@ export const addBoorkmarkSetvice = async(token, journalId) =>{
     }
 }
 
-export const uploadOpinionReplyService = async(parent_id, opinion, user_id, receiver_id, opinionId) =>{
+export const uploadOpinionReplyService = async(parent_id, opinion, user_id, receiver_id, opinion_uiid) =>{
     if(!parent_id || !user_id || !receiver_id){
         console.error('parentid, receiver_id or userid is undefined');
         throw {status: 400, error:'parentid, receiver_id or userid is undefined'};
@@ -221,10 +221,11 @@ export const uploadOpinionReplyService = async(parent_id, opinion, user_id, rece
     }
 
     const isOwner = user_id === receiver_id;
+    console.log(isOwner)
 
     const insertNotifPromise = supabase
-    .from('notifications')
-    .insert({type: 'reply', read: false, receiver_id: receiver_id, sender_id: user_id, journal_id: opinionId})
+    .from('notification_opinions')
+    .insert({type: 'reply', read: false, receiver_id: receiver_id, sender_id: user_id, opinion_id: parent_id})
 
     const insertOpinionReplyPromise = supabase
     .from('opinions')

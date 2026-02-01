@@ -1,5 +1,5 @@
 import e from "express";
-import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService } from "../services/uploadService.js";
+import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService } from "../services/uploadService.js";
 
 export const uploadUserDataController = async(req, res) =>{
     const {bio, name} = req.body;
@@ -80,5 +80,19 @@ export const updateJournalController = async(req, res) =>{
     } catch (error) {
         console.error(error);
         return res.status(500).json({error: 'failed to update journal'})
+    }
+}
+
+export const addReplyOpinionController = async(req, res) =>{
+    const {reply} = req.body;
+    const {parent_id} = req.params;
+    const token = req.headers?.authorization.split(' ')[1];
+
+    try {
+        await addReplyOpinionService(reply, parent_id, token);
+        return req.status(200).json({message: 'reply was updated successfuly'})
+    } catch (error) {
+        console.error(error)
+        return res.status(500).json({error: 'failed to add reply'})
     }
 }

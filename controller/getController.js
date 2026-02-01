@@ -1,4 +1,4 @@
-import { getCommentsService, getJournalsService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService } from "../services/getService.js";
+import { getCommentsService, getJournalsService, getOpinionReplyService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -59,5 +59,19 @@ export const getCommentsController = async(req, res) =>{
     } catch (error) {
         console.error(error);
         return res.status(500).json({error: 'Failed to fetch comments'})
+    }
+}
+
+export const getReplyOpinionsController = async(req, res) =>{
+    const {parentId} = req.params;
+    const {limit, cursor} = req.query;
+
+    try {
+        const response = await getOpinionReplyService(parentId, limit, cursor);
+
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({error: 'Failed to fetch opinion replies'});
     }
 }

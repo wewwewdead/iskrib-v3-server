@@ -263,3 +263,32 @@ export const updateJournalService = async(content, title, journalId, token) => {
     return true;
 }
 
+export const addReplyOpinionService = async(reply, parentId, token) => {
+    if(!token){
+        console.error('token is undefined');
+        throw {status: 400, error: 'token is undefined'};
+    }
+    if(!reply || typeof(reply) !== 'string'){
+        console.error('reply should be a string');
+        throw {status: 400, error: 'reply should be a string'}
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+    if(errorAuthData){
+        console.error('supabase error:', errorAuthData.message)
+        throw{status: 'supabase error while adding reply comments'}
+    }
+
+    const userId = authData?.user?.id;
+
+    const {data ,error} = await supabase
+    .from('opinions')
+    .insert({user_id: userId, opinion: reply, parent_id: parentId})
+
+    if(error){
+        console.error('supabase error while inserting reply opinion', error.message);
+        throw {status: 500, error: 'supabase error'}
+    }
+
+    return true;
+}
