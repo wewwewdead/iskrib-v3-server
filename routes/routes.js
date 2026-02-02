@@ -10,7 +10,7 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController } from "../controller/deleteController.js";
-import { getCommentsController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
+import { getBookmarksController, getCommentsController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 
 const router = express.Router();
@@ -95,67 +95,7 @@ router.get('/getComments', getCommentsController);
 
 router.post('/addBoorkmark',upload, addBoorkmarkController);
 
-router.get('/getBookmarks', async(req, res) => {
-    const {before, limit, userId} = req.query;
-
-    if(!userId) {
-        console.error('no userId')
-        return res.status(400).json({error: 'no userId!'})
-    }
-
-    let query = supabase
-    .from('bookmarks')
-    .select(`*,
-        journals(
-        id, created_at, user_id, content, title, 
-        comment_count: comments(count),
-        bookmark_count: bookmarks(count),
-
-        users(name, user_email, image_url, badge),
-
-        like_count: likes(count),
-        has_liked: likes!left(user_id),
-        has_bookmarked: bookmarks!left(user_id)
-        )
-        `, {count: 'exact'})
-
-    .eq('user_id', userId)
-    .order('created_at', {ascending: false})
-    .order('id', {ascending: false})
-    .limit(parseInt(limit) + 1) //peek ahead to check if it has more bookmarks
-
-    if(before) {
-        query = query.lt('created_at', before)
-    }
-    
-    const {data: bookmarks, error: errorBookmarks, count} = await query;
-    // console.log(bookmarks)
-    if(errorBookmarks){
-        console.error('supabase error while getting bookmarks:', errorBookmarks);
-        return res.status(500).json({error: 'error while fetchin bookmarks from database'});
-    }
-
-    // console.log(bookmarks)
-
-    const formatted = bookmarks.map((bookmark) => ({
-        ...bookmark,
-        journals:{
-            ...bookmark.journals,
-            has_liked: Array.isArray(bookmark.journals?.has_liked) && bookmark?.journals.has_liked.length > 0,
-            has_bookmarked: Array.isArray(bookmark?.journals.has_bookmarked) && bookmark?.journals.has_bookmarked.length > 0
-        }
-    }))
-
-    const hasMore = bookmarks.length > parseInt(limit);
-    const slicedData = hasMore ? formatted.slice(0, parseInt(limit)) : formatted;
-
-    // console.log(bookmarks);
-    
-    return res.status(200).json({
-        bookmarks: slicedData, 
-        hasMore: hasMore, 
-        totalBookmarks: before ? null : count});
-})
+router.get('/getBookmarks', getBookmarksController)
 
 router.post('/addFollows', upload, async(req, res) => {
     console.log(req.body);

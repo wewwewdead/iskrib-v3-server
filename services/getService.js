@@ -222,6 +222,10 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
 
     const journalIds = journals?.map((journal) => journal.id);
 
+    if(journalIds.length === 0){
+        return {data: [], hasMore: false}
+    }
+
     let userLikesPromise;
     let userBookmarksPromise;
 
@@ -276,7 +280,7 @@ export const getViewOpinionService = async(postId, userId) => {
 
     let query = supabase
     .from('opinions')
-    .select('*, users(id, name, image_url, user_email)')
+    .select('*, users(id, name, image_url, user_email, badge)')
     .eq('id', postId)
     .eq('user_id', userId)
 
@@ -366,4 +370,101 @@ export const getOpinionReplyService = async(parentId, limit, before) =>{
     const slicedData = hasMore ? replyData.splice(0, parsedLimit) : replyData;
 
     return {data: slicedData, hasMore: hasMore};
+}
+
+export const getBookmarksService = async(userId, before, limit) => {
+    if(!userId){
+        console.error('userId is undefined');
+        throw {status: 400, error: 'userId is undefined'}
+    }
+
+    if(isNaN(limit) || limit > 20 || limit < 1){
+        console.error('limit must be an integer and not more than 20 or less than 1');
+        throw {status: 400, error: 'limit must be an integer and not more than 20 or less than 1'};
+    }
+    const paresedLimit = parseInt(limit);
+    let query = supabase
+    .from('bookmarks')
+    .select(`*,
+        journals(
+        id, created_at, user_id, content, title, 
+        comment_count: comments(count),
+        bookmark_count: bookmarks(count),
+
+        users(name, user_email, image_url, badge),
+
+        like_count: likes(count)
+        )
+        `, {count: 'exact'})
+
+    .eq('user_id', userId)
+    .order('created_at', {ascending: false})
+    .order('id', {ascending: false})
+    .limit(parseInt(limit) + 1)
+
+    if(before){
+        query = query.lt('created_at', before);
+    }
+
+    const {data: bookMarksData, error: errorBookmarks, count} = await query;
+
+    if(errorBookmarks){
+        console.error('supabase error:', errorBookmarks.message);
+        throw {status: 500, error: 'supabase error while fetching bookmarks'}
+    }
+
+    const journalIds = bookMarksData?.map((bookmark) => bookmark.journals.id);
+
+    if(journalIds.length === 0){
+        return {data: [], hasMore: false}
+    }
+
+    let hasLikedPromise;
+    let hasBookmarkedPromise;
+
+    if(journalIds){
+        hasLikedPromise = supabase
+        .from('likes')
+        .select('journal_id')
+        .in('journal_id', journalIds)
+        .eq('user_id', userId)
+
+        hasBookmarkedPromise = supabase
+        .from('bookmarks')
+        .select('journal_id')
+        .in('journal_id', journalIds)
+        .eq('user_id', userId)
+    }
+
+    const [hasLiked, hasBookMarked] = await Promise.all([
+        hasLikedPromise, hasBookmarkedPromise
+    ])
+
+    const {data: hasLikedResult, error: errorHasLikedResult} = hasLiked;
+    const {data: hasBookMarkedResult, error: errorHasbookmarkedResult} = hasBookMarked;
+
+    if(errorHasLikedResult || errorHasbookmarkedResult){
+        console.error('supabase error while fetching data:', errorHasLikedResult.message || errorHasbookmarkedResult.message);
+        throw {status: 500, error: 'supabase error while fetching data'};
+    }
+    
+    const userHasLikedSet = new Set(hasLikedResult.map((journal) => journal.journal_id) || []);
+    const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmark) => bookmark.journal_id) || []);
+
+    const hasMore = bookMarksData.length > paresedLimit;
+
+
+    const formattedData = bookMarksData.map((b) => ({
+        ...b,
+        has_liked: userHasLikedSet.has(b.journals.id),
+        has_bookmarked: userHasBookmarkedSet.has(b.journals.id),
+    }))
+
+    const slicedData = hasMore ? formattedData.splice(0, paresedLimit) : formattedData;
+
+    return {
+        bookmarks: slicedData,
+        hasMore: hasMore,
+        totalBookmarks: before ? null : count
+    }
 }

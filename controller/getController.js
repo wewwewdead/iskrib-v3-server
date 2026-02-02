@@ -1,4 +1,4 @@
-import { getCommentsService, getJournalsService, getOpinionReplyService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService } from "../services/getService.js";
+import { getBookmarksService, getCommentsService, getJournalsService, getOpinionReplyService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -73,5 +73,18 @@ export const getReplyOpinionsController = async(req, res) =>{
     } catch (error) {
         console.error(error);
         return res.status(500).json({error: 'Failed to fetch opinion replies'});
+    }
+}
+
+export const getBookmarksController = async(req, res) =>{
+    const {before, limit, userId} = req.query;
+
+    try {
+        const response = await getBookmarksService(userId, before, limit);
+
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({error: 'Failed to fetch bookmarks'})
     }
 }
