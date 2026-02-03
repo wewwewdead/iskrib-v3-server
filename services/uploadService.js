@@ -142,7 +142,9 @@ export const uploadJournalImageService = async(image, token) =>{
 
 
     let image_buffer = await sharp(image.buffer)
-    .webp({quality: 80})
+    .rotate()
+    .resize(1200, 1200, {fit: 'inside', withoutEnlargement: true})
+    .webp({quality: 80, effort: 4})
     .toBuffer()
 
     const data_url = await imageUploader(image_buffer, userId, 'journal-images');
