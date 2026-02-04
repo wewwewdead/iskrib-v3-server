@@ -1,4 +1,4 @@
-import { addBoorkmarkSetvice, addCommentService, likeService, uploadOpinionReplyService } from "../services/interactService.js";
+import { addBoorkmarkSetvice, addCommentService, addFollowsService, likeService, uploadOpinionReplyService } from "../services/interactService.js";
 
 export const likeController = async(req, res) => {
     const {journalId, receiverId,} = req.body;
@@ -50,5 +50,16 @@ export const addOpinionReplyController = async(req, res) =>{
     } catch (error) {
         console.error(error);
         return res.status(500).json({error: 'Failed to upload opinion reply'})
+    }
+}
+export const addFollowController = async(req, res) => {
+    const {followerId, followingId} = req.body;
+
+    try {
+        const response = await addFollowsService(followerId, followingId);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({error: 'Failed to add or remove follow'})
     }
 }

@@ -11,7 +11,7 @@ import { addReplyOpinionController, updateJournalController, updateUserDataContr
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController } from "../controller/deleteController.js";
 import { getBookmarksController, getCommentsController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
-import { addBoorkmarkController, addCommentController, addOpinionReplyController, likeController } from "../controller/interactController.js";
+import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 
 const router = express.Router();
 
@@ -97,56 +97,7 @@ router.post('/addBoorkmark',upload, addBoorkmarkController);
 
 router.get('/getBookmarks', getBookmarksController)
 
-router.post('/addFollows', upload, async(req, res) => {
-    console.log(req.body);
-    const {followerId, followingId} = req.body;
-    
-
-    if(!followerId && !followingId) return res.status(400).json({error: 'No followerId and followingId'});
-
-    const {data: existing, error: errorExisting} = await supabase
-    .from('follows')
-    .select('*')
-    .eq('follower_id', followerId)
-    .eq('following_id', followingId)
-    .maybeSingle();
-
-    if(errorExisting){
-        console.error('error:', errorExisting);
-        return res.status(500).json({error: 'supabase error while checking the existence of the followerId and followingId'});
-    }
-    if(existing){
-        const {data: removeData, error: errorRemoveData} = await supabase
-        .from('follows')
-        .delete()
-        .eq('follower_id', followerId)
-        .eq('following_id', followingId)
-
-        if(errorRemoveData){
-            console.error('error:', errorRemoveData);
-            return res.status(500).json({error: 'supabase error while removing the existing follows data'});
-        }
-         return res.status(200).json({message: 'deleted follows data'});
-
-    } else {
-            const data = {
-                follower_id: followerId,
-                following_id: followingId,
-            }
-
-            const {data: inserData,  error: errorInserData} = await supabase
-            .from('follows')
-            .insert(data)
-
-            if(errorInserData){
-                console.error('error:', errorInserData)
-                return res.status(500).json({error: 'error inserting follows data'});
-            }
-
-            return res.status(200).json({message: 'success'});
-        }
-
-})
+router.post('/addFollows', upload, addFollowController);
 
 router.get('/getFollowsData', async(req, res) => {
     const {userId, loggedInUserId} = req.query;

@@ -244,3 +244,53 @@ export const uploadOpinionReplyService = async(parent_id, opinion, user_id, rece
 
     return {message: 'success'};
 }
+
+export const addFollowsService = async(followerId, followingId) => {
+    if(!followerId || !followingId){
+        console.error('followerId or followingId is undefined');
+        throw {status: 400, error: 'followerId or followingId is undefined'};
+    }
+
+    const {data: existing, error: errorExisting} = await supabase
+    .from('follows')
+    .select('*')
+    .eq('follower_id', followerId)
+    .eq('following_id', followingId)
+    .maybeSingle();
+
+    if(errorExisting){
+        console.error('supabase error while checking existing following:', errorExisting.message);
+        throw {status: 500, error: 'supabase error while checking existing following'}
+    }
+
+    if(existing){
+        const {data: removeData, error: errorRemoveData} = await supabase
+        .from('follows')
+        .delete()
+        .eq('follower_id', followerId)
+        .eq('following_id', followingId)
+
+        if(errorRemoveData){
+            console.error('supabase error while deleting follow data:', errorRemoveData.message);
+            throw {status: 500, error: 'supabase error while deleting follow data'};
+        }
+
+        return {message: 'deleted follows data'};
+    } else {
+        const data = {
+            follower_id: followerId,
+            following_id: followingId,
+        }
+
+        const {data: inserData,  error: errorInserData} = await supabase
+        .from('follows')
+        .insert(data)
+
+        if(errorInserData){
+            console.error('supabase error while inserting follow data:', errorInserData.message);
+            throw {status: 500, error: 'supabase error while inserting follow data:'}
+        }
+
+        return {message: 'success'};
+    }
+}
