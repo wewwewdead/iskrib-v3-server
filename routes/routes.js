@@ -956,7 +956,7 @@ router.get('/getOpinions', async(req, res) => {
 
     let query = supabase
     .from('opinions')
-    .select('*, users(image_url,name, user_email, badge)')
+    .select('*, users(name, id, user_email, image_url, badge, background, profile_font_color, dominant_colors, secondary_colors)')
     .is('parent_id', null)
     .order('id', {ascending: false})
     .limit(paresedLimit + 1)
@@ -1009,6 +1009,7 @@ router.get('/getMyOpinions', async(req, res) =>{
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)
     .eq('user_id', userId)
+    .is('parent_id', null)
 
     if(before){
         query = query.lt('id', before) //limit or lt mieans it will start to fetch from the value of before 
@@ -1047,6 +1048,7 @@ router.get('/getUserOpinions', async(req, res) =>{
     .select('*, users(name, user_email, image_url, id, badge)')
     .limit(parsedLimit + 1)
     .eq('user_id', userId)
+    .is('parent_id', null)
     .order('id', {ascending: false})
 
     if(before){

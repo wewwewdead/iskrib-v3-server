@@ -280,7 +280,7 @@ export const getViewOpinionService = async(postId, userId) => {
 
     let query = supabase
     .from('opinions')
-    .select('*, users(id, name, image_url, user_email, badge)')
+    .select('*, users(name, id, user_email, image_url, badge, background, profile_font_color, dominant_colors, secondary_colors)')
     .eq('id', postId)
     .eq('user_id', userId)
 
@@ -349,7 +349,7 @@ export const getOpinionReplyService = async(parentId, limit, before) =>{
 
     let query = supabase
     .from('opinions')
-    .select('*, users(name, id, user_email, image_url, badge)')
+    .select('*, users(name, id, user_email, image_url, badge, background, profile_font_color, dominant_colors, secondary_colors)')
     .eq('parent_id', parentId)
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)
