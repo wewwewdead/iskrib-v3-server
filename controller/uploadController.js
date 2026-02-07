@@ -1,5 +1,5 @@
 import e from "express";
-import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService } from "../services/uploadService.js";
+import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, uploadProfileNoteImageService } from "../services/uploadService.js";
 
 export const uploadUserDataController = async(req, res) =>{
     const {bio, name} = req.body;
@@ -16,12 +16,33 @@ export const uploadUserDataController = async(req, res) =>{
 }
 
 export const updateUserDataController = async(req, res) =>{
-    const {name, bio, profileBg, dominantColors, secondaryColors, fontColors} = await req.body;
+    const {
+        name,
+        bio,
+        profileBg,
+        profileLayout,
+        dominantColors,
+        secondaryColors,
+        fontColor,
+        profile_font_color: profileFontColorFromBody,
+        fontColors
+    } = await req.body;
     const image = req.file;
     const token = req.headers.authorization?.split(' ')[1];
+    const profileFontColor = profileFontColorFromBody || fontColor || fontColors;
 
     try {
-        const data =  await updateUserDataService(name, bio, profileBg, dominantColors, secondaryColors, fontColors, token, image);
+        const data =  await updateUserDataService(
+            name,
+            bio,
+            profileBg,
+            profileLayout,
+            dominantColors,
+            secondaryColors,
+            profileFontColor,
+            token,
+            image
+        );
         return res.status(200).json({data: data});
     } catch (error) {
         console.error('error updating user data', error);
@@ -55,6 +76,19 @@ export const uploadJournalImageController = async(req, res) =>{
     } catch (error) {
         console.error(error);
         throw {status: 500, error: 'error uploading journal images'}
+    }
+}
+
+export const uploadProfileNoteImageController = async(req, res) =>{
+    const token = req.headers.authorization?.split(' ')[1];
+    const image = req.file;
+
+    try {
+        const image_url = await uploadProfileNoteImageService(image, token);
+        return res.status(200).json({img_url: image_url});
+    } catch (error) {
+        console.error(error);
+        throw {status: 500, error: 'error uploading profile note images'}
     }
 }
 

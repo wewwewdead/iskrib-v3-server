@@ -7,9 +7,9 @@ import ParseContent from "../utils/parseData.js";
 import { verfifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
-import { addReplyOpinionController, updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
+import { addReplyOpinionController, updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController, uploadProfileNoteImageController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
-import { deleteJournalContent, deleteJournalImageController } from "../controller/deleteController.js";
+import { deleteJournalContent, deleteJournalImageController, deleteProfileNoteImageController } from "../controller/deleteController.js";
 import { getBookmarksController, getCommentsController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 
@@ -72,8 +72,10 @@ router.post('/updateFontColor', upload, updateFont);
 router.post('/uploadBackground', upload, uploadProfileBgController);
 
 router.post('/save-journal-image', upload, uploadJournalImageController);
+router.post('/save-profile-note-image', upload, uploadProfileNoteImageController);
 
 router.post('/delete-journal-images', upload, deleteJournalImageController);
+router.post('/delete-profile-note-image', upload, deleteProfileNoteImageController);
 
 router.post('/save-journal', upload, uploadJournalContentController);
 
@@ -956,7 +958,7 @@ router.get('/getOpinions', async(req, res) => {
 
     let query = supabase
     .from('opinions')
-    .select('*, users(name, id, user_email, image_url, badge, background, profile_font_color, dominant_colors, secondary_colors)')
+    .select('*, users(name, id, user_email, image_url, badge)')
     .is('parent_id', null)
     .order('id', {ascending: false})
     .limit(paresedLimit + 1)

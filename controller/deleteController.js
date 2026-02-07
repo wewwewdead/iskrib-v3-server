@@ -1,5 +1,18 @@
-import { deleteJournalContentService, deleteJournalImageService } from "../services/deleteService.js";
+import { deleteJournalContentService, deleteJournalImageService, deleteProfileNoteImageService } from "../services/deleteService.js";
 
+
+export const deleteProfileNoteImageController = async(req, res) =>{
+    const token = req.headers.authorization?.split(' ')[1];
+    const {filepath} = req.body;
+
+    try {
+        await deleteProfileNoteImageService(token, filepath);
+        return res.status(200).json({message: 'Profile note image deleted successfully'})
+    } catch (error) {
+        console.error(error);
+        return res.status(500).json({error: 'failed to delete profile note image'})
+    }
+}
 
 export const deleteJournalImageController = async(req, res) =>{
     const token = req.headers.authorization?.split(' ')[1];

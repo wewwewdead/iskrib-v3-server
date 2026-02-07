@@ -49,7 +49,7 @@ export const uploadUserDataService = async(bio, name, image, token) =>{
     return true;
 }
 
-export const updateUserDataService = async(name, bio, profileBg, dominantColors, secondaryColors, fontColors, token, image) =>{
+export const updateUserDataService = async(name, bio, profileBg, profileLayout, dominantColors, secondaryColors, profileFontColor, token, image) =>{
     if(!token){
         console.error('token is undefined')
         throw {status: 400, error:'token is undefined'}
@@ -71,14 +71,31 @@ export const updateUserDataService = async(name, bio, profileBg, dominantColors,
     }
 
     const parsedProfileBg = JSON.parse(profileBg);
+    let parsedProfileLayout = null;
+    if(profileLayout){
+        try {
+            parsedProfileLayout = typeof profileLayout === 'string'
+                ? JSON.parse(profileLayout)
+                : profileLayout;
+        } catch (error) {
+            console.error('invalid profileLayout JSON');
+            throw {status: 400, error: 'invalid profileLayout JSON'};
+        }
+    }
 
     const payload = {
         name: name,
         bio: bio,
         background: parsedProfileBg,
         dominant_colors: dominantColors, 
-        secondary_colors: secondaryColors,
-        font_colors: fontColors
+        secondary_colors: secondaryColors
+    }
+
+    if(profileFontColor){
+        payload.profile_font_color = profileFontColor;
+    }
+    if(parsedProfileLayout && typeof parsedProfileLayout === 'object'){
+        payload.profile_layout = parsedProfileLayout;
     }
 
     const userId = userData.user.id;
@@ -154,6 +171,39 @@ export const uploadJournalImageService = async(image, token) =>{
     } else{
         console.error('error while uploading journal images');
         throw {statu: 500, error: 'error while uploading journal images'};
+    }
+}
+
+export const uploadProfileNoteImageService = async(image, token) =>{
+    if(!token){
+        console.error('token is undefined');
+        throw{status: 400, error: 'token is undefined'};
+    }
+    if(!image){
+        console.error('file image is null');
+        throw {status: 400, error: 'file image is undefined'};
+    }
+
+    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
+    const userId = authData?.user.id;
+
+    if(errorAuthData){
+        console.error('error validating user authorization:', errorAuthData.message);
+    }
+
+    let image_buffer = await sharp(image.buffer)
+    .rotate()
+    .resize(1200, 1200, {fit: 'inside', withoutEnlargement: true})
+    .webp({quality: 80, effort: 4})
+    .toBuffer()
+
+    const data_url = await imageUploader(image_buffer, userId, 'profile-notes-images');
+
+    if(data_url){
+        return data_url;
+    } else{
+        console.error('error while uploading profile note image');
+        throw {status: 500, error: 'error while uploading profile note image'};
     }
 }
 
