@@ -1,15 +1,13 @@
-import express, { json, Router } from "express";
+import express from "express";
 import supabase from "../services/supabase.js";
 import multer from "multer";
 import sharp from 'sharp';
-import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
-import ParseContent from "../utils/parseData.js";
 import { verfifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
-import { addReplyOpinionController, updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController, uploadProfileNoteImageController } from "../controller/uploadController.js";
+import { addReplyOpinionController, updateJournalController, updateProfileLayoutController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadNotesImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
-import { deleteJournalContent, deleteJournalImageController, deleteProfileNoteImageController } from "../controller/deleteController.js";
+import { deleteJournalContent, deleteJournalImageController } from "../controller/deleteController.js";
 import { getBookmarksController, getCommentsController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 
@@ -69,13 +67,15 @@ router.post('/update-user-data', upload, updateUserDataController);
 
 router.post('/updateFontColor', upload, updateFont);
 
+router.post('/updateProfileLayout', express.json(), updateProfileLayoutController);
+
+router.post('/uploadNotesImage', upload, uploadNotesImageController);
+
 router.post('/uploadBackground', upload, uploadProfileBgController);
 
 router.post('/save-journal-image', upload, uploadJournalImageController);
-router.post('/save-profile-note-image', upload, uploadProfileNoteImageController);
 
 router.post('/delete-journal-images', upload, deleteJournalImageController);
-router.post('/delete-profile-note-image', upload, deleteProfileNoteImageController);
 
 router.post('/save-journal', upload, uploadJournalContentController);
 

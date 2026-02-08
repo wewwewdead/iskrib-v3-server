@@ -1,7 +1,16 @@
 import { pipeline } from "@xenova/transformers";
 
+let embeddingPipelinePromise;
+
+const getEmbeddingPipeline = () => {
+    if(!embeddingPipelinePromise){
+        embeddingPipelinePromise = pipeline('feature-extraction', 'Supabase/gte-small');
+    }
+    return embeddingPipelinePromise;
+}
+
 const GenerateEmbeddings = async(title, body) => {
-    const genereateEmbedding = await pipeline('feature-extraction', 'Supabase/gte-small');
+    const genereateEmbedding = await getEmbeddingPipeline();
     const output = await genereateEmbedding(`${title}  ${body}`, {
         pooling: 'mean',
         normalize: true

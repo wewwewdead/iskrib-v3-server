@@ -1,5 +1,5 @@
 import e from "express";
-import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, uploadProfileNoteImageService } from "../services/uploadService.js";
+import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadNotesImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, updateProfileLayoutService } from "../services/uploadService.js";
 
 export const uploadUserDataController = async(req, res) =>{
     const {bio, name} = req.body;
@@ -79,19 +79,6 @@ export const uploadJournalImageController = async(req, res) =>{
     }
 }
 
-export const uploadProfileNoteImageController = async(req, res) =>{
-    const token = req.headers.authorization?.split(' ')[1];
-    const image = req.file;
-
-    try {
-        const image_url = await uploadProfileNoteImageService(image, token);
-        return res.status(200).json({img_url: image_url});
-    } catch (error) {
-        console.error(error);
-        throw {status: 500, error: 'error uploading profile note images'}
-    }
-}
-
 export const uploadJournalContentController = async(req, res) =>{
     const {content, title} = req.body;
     const token = req.headers.authorization?.split(' ')[1];
@@ -116,6 +103,36 @@ export const updateJournalController = async(req, res) =>{
         return res.status(500).json({error: 'failed to update journal'})
     }
 }
+
+export const uploadNotesImageController = async(req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    const image = req.file;
+
+    try {
+        const image_url = await uploadNotesImageService(image, token);
+        return res.status(200).json({img_url: image_url});
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || 'error uploading notes image'});
+    }
+};
+
+export const updateProfileLayoutController = async(req, res) => {
+    const token = req.headers.authorization?.split(' ')[1];
+    const { profileLayout } = req.body;
+
+    try {
+        let parsed = profileLayout;
+        if(typeof profileLayout === 'string'){
+            parsed = JSON.parse(profileLayout);
+        }
+        await updateProfileLayoutService(token, parsed);
+        return res.status(200).json({message: 'profile layout updated successfully'});
+    } catch (error) {
+        console.error('error updating profile layout:', error);
+        return res.status(error?.status || 500).json({error: error?.error || 'error updating profile layout'});
+    }
+};
 
 export const addReplyOpinionController = async(req, res) =>{
     const {reply} = req.body;

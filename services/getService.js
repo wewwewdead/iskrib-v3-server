@@ -1,4 +1,3 @@
-import { parse } from "dotenv";
 import supabase from "./supabase.js";
 
 export const getJournalsService = async(limit, userId, before) => {

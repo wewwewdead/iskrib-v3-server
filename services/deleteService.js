@@ -30,36 +30,6 @@ export const deleteJournalImageService = async(token, filepath) =>{
     return true;
 }
 
-export const deleteProfileNoteImageService = async(token, filepath) =>{
-    if(!token){
-        console.error('token is undefined');
-        throw {status: 400, error:'token is undefined'};
-    }
-
-    if(!filepath){
-        console.error('filepath is undefined');
-        throw {status: 400, error: 'filepath is undefined'}
-    }
-
-    const {data: authData,error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('error while validating user:', errorAuthData.message);
-        throw {status: 500, error: 'user is not authorized'}
-    }
-
-    const {error} = await supabase.storage
-        .from('profile-notes-images')
-        .remove(filepath);
-
-    if(error){
-        console.error('supabase error while deleting profile note image:', error.message);
-        throw {status: 500, error: 'supabase error while deleting profile note image'};
-    }
-
-    return true;
-}
-
 export const deleteJournalContentService = async(journalId, token) =>{
     if(!journalId){
         console.error('journalid is undefined')
