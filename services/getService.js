@@ -330,7 +330,7 @@ export const getCommentsService = async(postId, limit, before) => {
     const hasMore = comments.length > parsedLimit;
     const slicedData = hasMore ? comments.splice(0, parsedLimit) : comments;
 
-    return {comments: comments, hasMore: hasMore};
+    return {comments: slicedData, hasMore: hasMore};
 }
 
 export const getOpinionReplyService = async(parentId, limit, before) =>{

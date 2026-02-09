@@ -20,11 +20,17 @@ const upload = multer({
 
 const requireAuth = async (req, res, next) => {
     const authHeader = req.headers?.authorization;
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!authHeader) {
         return res.status(401).json({ error: 'not authorized' });
     }
 
-    const token = authHeader.slice(7).trim();
+    // Accept "Bearer <token>" (any casing) and raw token fallback.
+    let token = authHeader.trim();
+    const bearerMatch = token.match(/^Bearer\s+(.+)$/i);
+    if (bearerMatch?.[1]) {
+        token = bearerMatch[1].trim();
+    }
+
     if (!token) {
         return res.status(401).json({ error: 'not authorized' });
     }
@@ -940,13 +946,14 @@ router.get('/getUserOpinions', async(req, res) =>{
 })
 
 router.post('/submitReply/:parent_id/:user_id/:post_id/:receiver_id', requireAuth, upload, async(req, res) => {
-    const {parent_id, user_id, receiver_id, post_id} = req.params;
+    const {parent_id, receiver_id, post_id} = req.params;
+    const user_id = req.userId;
     const {reply} = req.body;
     const isOwner = req.userId === receiver_id
 
-    if(!parent_id || !user_id || !post_id){
-        console.error('no parent_id || user_id || post_id available')
-        return res.status(400).json({error: 'parent_id || user_id || post_id is missing'});
+    if(!parent_id || !post_id || !receiver_id){
+        console.error('no parent_id || post_id || receiver_id available')
+        return res.status(400).json({error: 'parent_id || post_id || receiver_id is missing'});
     }
     if(!reply || reply.length > 201 || typeof reply !== 'string'){
         console.error('make sure the reply is a string and not over 200 characters');
