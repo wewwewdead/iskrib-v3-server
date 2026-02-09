@@ -18,6 +18,28 @@ const upload = multer({
     limits: {fileSize: 10 * 1024 * 1024},
 }).single('image');
 
+const requireAuth = async (req, res, next) => {
+    const authHeader = req.headers?.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: 'not authorized' });
+    }
+
+    const token = authHeader.slice(7).trim();
+    if (!token) {
+        return res.status(401).json({ error: 'not authorized' });
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !authData?.user?.id) {
+        console.error('auth middleware error:', authError?.message || 'missing user id');
+        return res.status(401).json({ error: 'not authorized' });
+    }
+
+    req.userId = authData.user.id;
+    req.authUser = authData.user;
+    return next();
+};
+
 export const imageUploader = async(file, userId, bucket) =>{
     if(!file){
         return res.status(500).json({error: 'no file received'});
@@ -61,25 +83,25 @@ router.get('/getUserData', getUserDataController);
 
 router.get('/check-user', checkUserController);
 
-router.post('/upload-user-data', upload, uploadUserDataController);
+router.post('/upload-user-data', requireAuth, upload, uploadUserDataController);
 
-router.post('/update-user-data', upload, updateUserDataController);
+router.post('/update-user-data', requireAuth, upload, updateUserDataController);
 
-router.post('/updateFontColor', upload, updateFont);
+router.post('/updateFontColor', requireAuth, upload, updateFont);
 
-router.post('/updateProfileLayout', express.json(), updateProfileLayoutController);
+router.post('/updateProfileLayout', requireAuth, express.json(), updateProfileLayoutController);
 
-router.post('/uploadNotesImage', upload, uploadNotesImageController);
+router.post('/uploadNotesImage', requireAuth, upload, uploadNotesImageController);
 
 router.post('/uploadBackground', upload, uploadProfileBgController);
 
-router.post('/save-journal-image', upload, uploadJournalImageController);
+router.post('/save-journal-image', requireAuth, upload, uploadJournalImageController);
 
-router.post('/delete-journal-images', upload, deleteJournalImageController);
+router.post('/delete-journal-images', requireAuth, upload, deleteJournalImageController);
 
-router.post('/save-journal', upload, uploadJournalContentController);
+router.post('/save-journal', requireAuth, upload, uploadJournalContentController);
 
-router.post('/update-journal', upload, updateJournalController);
+router.post('/update-journal', requireAuth, upload, updateJournalController);
 
 router.get('/journals', getJournalsController);
 
@@ -87,19 +109,19 @@ router.get('/userJournals', getUserJournalsController);
 
 router.get('/visitedUserJournals', getVisitedUserJournalsController);
 
-router.delete('/deleteJournal/:journalId', deleteJournalContent);
+router.delete('/deleteJournal/:journalId', requireAuth, deleteJournalContent);
 
-router.post('/like', likeController);
+router.post('/like', requireAuth, likeController);
 
-router.post('/addComment',upload, addCommentController);
+router.post('/addComment', requireAuth, upload, addCommentController);
 
 router.get('/getComments', getCommentsController);
 
-router.post('/addBoorkmark',upload, addBoorkmarkController);
+router.post('/addBoorkmark', requireAuth, upload, addBoorkmarkController);
 
 router.get('/getBookmarks', getBookmarksController)
 
-router.post('/addFollows', upload, addFollowController);
+router.post('/addFollows', requireAuth, upload, addFollowController);
 
 router.get('/getFollowsData', async(req, res) => {
     const {userId, loggedInUserId} = req.query;
@@ -174,23 +196,9 @@ router.get('/getCountNotifications', async(req, res) =>{
     return res.status(200).json({count: (journalCount.count || 0) + (opinionCount.count || 0)});
 }) 
 
-router.get('/getNotifications', async(req, res) =>{
+router.get('/getNotifications', requireAuth, async(req, res) =>{
     const {before, limit} = req.query;
-
-    const token = req.headers?.authorization?.split(' ')[1];
-    if(!token){
-        console.error('not authorized')
-        return res.status(400).json({error:'not authorized'})
-    }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('error:', errorAuthData.message);
-        return res.status(500).json({error: 'error on checking authorization'})
-    }
-
-    const userId = authData?.user?.id;
+    const userId = req.userId;
 
     // Fetch a generous amount from both tables, then merge and paginate
     const fetchLimit = parseInt(limit) + 1;
@@ -283,20 +291,9 @@ router.get('/getNotifications', async(req, res) =>{
 
 })
 
-router.post('/readNotification', async(req, res) => {
+router.post('/readNotification', requireAuth, async(req, res) => {
     const {notifId, source} = req.body;
-    const token = req.headers?.authorization?.split(' ')[1];
-    if(!token){
-        console.error('no token!')
-        return res.status(400).json({error: 'Not authorized'})
-    }
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('error authorizing user')
-        return res.status(500).json({error: 'failed to authorized user'})
-    }
-    const userId = authData?.user?.id;
+    const userId = req.userId;
 
     const tableName = source === 'opinion' ? 'notification_opinions' : 'notifications';
 
@@ -315,26 +312,15 @@ router.post('/readNotification', async(req, res) => {
 
     return res.status(200).json({message: 'notification was read!'})
 })
-router.get('/getUnreadNotification', async(req, res) => {
-    const token = req.headers?.authorization?.split(' ')[1];
+router.get('/getUnreadNotification', requireAuth, async(req, res) => {
     const {limit, before} = req.query;
-    if(!token){
-        console.error('no token provided!')
-        return res.status(400).json({error: 'not authorized'})
-    }
-    const{ data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('error checking user authorization:', errorAuthData.message)
-        return res.status(500).json({error: 'error checking authorization'})
-    }
 
     const parsedLimit = parseInt(limit);
     if(isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 20){
         return res.status(400).json({error: 'limit must be between 1 and 20'});
     }
 
-    const receiverId = authData?.user?.id;
+    const receiverId = req.userId;
     const fetchLimit = parsedLimit + 1;
 
     let journalQuery = supabase
@@ -421,27 +407,15 @@ router.get('/getUnreadNotification', async(req, res) => {
     })
 })
 
-router.delete('/deleteNotification/:notifId', async(req, res) =>{
-    const token = req.headers?.authorization?.split(' ')[1];
+router.delete('/deleteNotification/:notifId', requireAuth, async(req, res) =>{
     const {notifId} = req.params;
     const {source} = req.query;
 
-    if(!token){
-        console.error('no token is provided!')
-        return res.status(400).json({error: 'not auhtorized'})
-    }
     if(!notifId){
         console.error('no notification id provided')
         return res.status(400).json({error: 'not notifId'})
     }
-
-    const {data : authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('error checking authorization:', errorAuthData);
-        return res.status(500).json({error: 'Error checking user authorization'});
-    }
-    const userId = authData?.user?.id;
+    const userId = req.userId;
 
     const tableName = source === 'opinion' ? 'notification_opinions' : 'notifications';
 
@@ -460,27 +434,14 @@ router.delete('/deleteNotification/:notifId', async(req, res) =>{
 })
 
 
-router.post('/addViews', upload, async(req, res) => {
+router.post('/addViews', requireAuth, upload, async(req, res) => {
     const {journalId} = req.body;
-    const token = req.headers?.authorization?.split(' ')[1];
 
     if(!journalId) {
         console.error('not journalId');
         return res.status(400).json({error: 'no journalId!'});
     }
-    if(!token){
-        console.error('error: no token provided!');
-        return res.status(400).json({error: 'no token!'});
-    }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('error:', errorAuthData);
-        return res.status(500).json({error: 'supabase error while checking user authentication'})
-    }
-
-    const viewerId = authData?.user?.id;
+    const viewerId = req.userId;
 
     const {data: addViews, error: errorAddViews} = await supabase
     .from('journal_views')
@@ -500,26 +461,14 @@ router.post('/addViews', upload, async(req, res) => {
 
 })
 
-router.post('/updatePrivacy', upload, async(req, res) => {
-    const token = req.headers?.authorization?.split(' ')[1];
+router.post('/updatePrivacy', requireAuth, upload, async(req, res) => {
     const {journalId, privacy} = req.body;
     // console.log(privacy)
-
-    if(!token){
-        console.error('error: no token!')
-        return res.status(400).json({error: 'no token!'})
-    }
     if(!journalId){
         console.error('no journalId')
         return res.status(400).json({error: 'no journalId'});
     }
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-    
-    if(errorAuthData){
-        console.error('supabase error while checking authorization:', errorAuthData.message);
-        return res.status(500).json({error: 'supabase error while checking authorization'})
-    }
-    const userId = authData?.user?.id;
+    const userId = req.userId;
 
     const {data: updatePrivacy, error: errorUpdatePrivacy} = await supabase
     .from('journals')
@@ -535,31 +484,18 @@ router.post('/updatePrivacy', upload, async(req, res) => {
     return res.status(200).json({message: 'success'});
 })
 
-router.post('/addCollections', upload, async(req, res) => {
-    const token = req.headers?.authorization?.split(' ')[1];
+router.post('/addCollections', requireAuth, upload, async(req, res) => {
     let {journalIds, title, description} = req.body;
 
     if(typeof journalIds === 'string'){
         journalIds = journalIds.split(',').map(id => id.trim()).filter(id => id !== '');
     }
 
-    if(!token){
-        console.error('no token provided!')
-        return res.status(400).json({error: 'no token!'})
-    }
     if(!title || !description){
         console.error('no collections title or description')
         return res.status(400).json({error: 'no collections title or description'})
     }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('error getting authorization', errorAuthData.message);
-        return res.status(500).json({error: 'supabase error while checking authorization'})
-    }
-
-    const userId = authData.user.id;
+    const userId = req.userId;
 
     try {
         const {data: collections, error: errorCollections} = await supabase
@@ -603,14 +539,8 @@ router.post('/addCollections', upload, async(req, res) => {
     }
 })
 
-router.post('/updateCollection', upload, async(req, res) =>{
+router.post('/updateCollection', requireAuth, upload, async(req, res) =>{
     let {journalIds, collectionId} = req.body;
-    const token = req.headers?.authorization?.split(' ')[1];
-
-    if(!token){
-        console.error('no token')
-        return res.status(400).json({error: 'no token!'})
-    }
 
     if(!collectionId){
         console.error('no collection id')
@@ -619,13 +549,6 @@ router.post('/updateCollection', upload, async(req, res) =>{
 
     if(typeof journalIds === 'string'){
         journalIds = journalIds.split(',').map((id) => id.trim()).filter((id) => id !== '');
-    }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('not authorized', errorAuthData.message);
-        return res.status(500).json({error: 'supabase error while authorizing user'})
     }
 
     if(Array.isArray(journalIds) && journalIds.length > 0){
@@ -694,27 +617,19 @@ router.get('/getCollections', async(req, res) => {
     return res.status(200).json({data: slicedData, hasMore: hasMore})
 })
 
-router.get('/getCollectionJournals', async(req, res) =>{
-    const token = req.headers?.authorization?.split(' ')[1];
+router.get('/getCollectionJournals', requireAuth, async(req, res) =>{
     const {collectionId, before, limit} = req.query;
 
     if(!collectionId) {
         console.error('no collectionId')
         return res.status(400).json({error: 'no collection ID'});
     }
-    if(!token){
-        console.error('no token!')
-        return res.status(400).json({error: 'no token!'})
-    }
-
     const parsedLimit = parseInt(limit);
 
     if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
         console.error('limit should only between 1-10');
         return res.status(400).json({error: 'Limit should only between 1-10'})
     }
-
-    let authorization = supabase.auth.getUser(token);
 
     let query = supabase
     .from('collection_journal')
@@ -727,18 +642,13 @@ router.get('/getCollectionJournals', async(req, res) =>{
         query = query.lt('id', before);
     }
 
-    const [journaResult, authorizationResult] = await Promise.all([
-        query, authorization
-    ])
+    const {data: journals, error: errorJournals} = await query;
 
-    const {data: journals, error: errorJournals} = journaResult;
-    const {data: authData, error: errorAuthData} = authorizationResult;
-
-    if(errorJournals || errorAuthData){
-        console.error('supabase error while fetching data:', errorJournals.message || errorAuthData.message);
+    if(errorJournals){
+        console.error('supabase error while fetching data:', errorJournals.message);
         return res.status(500).json({error: 'supabase error while fetching data'});
     }
-    const userId = authData?.user?.id;
+    const userId = req.userId;
     const journalIds = journals?.map((journal) => journal.journals.id) || [];
 
     let hasLikedPromise;
@@ -852,27 +762,13 @@ router.get('/getNotCollectedPost', async(req, res) => {
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
 
-router.delete('/deleteCollection/:collectionId', async(req, res) =>{
-    const token = req.headers?.authorization?.split(' ')[1];
+router.delete('/deleteCollection/:collectionId', requireAuth, async(req, res) =>{
     const {collectionId} = req.params;
-
-    if(!token){
-        console.error('no token!')
-        return res.status(400).json({error: 'no token!'});
-    }
     if(!collectionId){
         console.error('no collectionId');
         return res.status(400).json({error: 'no collectionId'});
     }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('supabase error:', errorAuthData.message);
-        return res.status(500).json({error: 'error authorizing user!'})
-    }
-
-    const userId = authData.user.id;
+    const userId = req.userId;
 
     const {data: deleteCollection, error: errorDeleteCollection} = await supabase
     .from('collections')
@@ -911,26 +807,13 @@ router.post('/updatePrivacyCollection', upload, async(req, res) => {
 
 })
 
-router.post('/addOpinion', upload, async(req, res) =>{
-    const token = req.headers.authorization.split(' ')[1];
+router.post('/addOpinion', requireAuth, upload, async(req, res) =>{
     const {opinion} = req.body;
-    if(!token){
-        console.error('No token available')
-        return res.status(400).json({error: 'not authorized'})
-    }
     if(!opinion || opinion.length > 280){
         console.error('no opinion or opinion is over 280 characters');
         return res.status(400).json({error: 'no opinion or opinion is over 280 characters'})
     }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('supabase error:', errorAuthData.message)
-        return res.status(500).json({error: 'supabase error'})
-    }
-
-    const userId= authData.user.id;
+    const userId = req.userId;
 
     const {error} = await supabase
     .from('opinions')
@@ -980,30 +863,16 @@ router.get('/getOpinions', async(req, res) => {
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
 
-router.get('/getMyOpinions', async(req, res) =>{
+router.get('/getMyOpinions', requireAuth, async(req, res) =>{
     const {limit, before} = req.query;
     const parsedLimit = parseInt(limit);
-
-    const token = req.headers?.authorization.split(' ')[1];
-    
-    if(!token){
-        console.error('No token available');
-        return res.status(400).json({error: 'No token available'});
-    }
 
     if(isNaN(parsedLimit) || parsedLimit.length > 20 || parsedLimit.length < 1){
         console.error('limit should be number and between 1 - 20');
         return res.status(400).json({error:'limit should be number and between 1 - 20'});
     }
 
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token)
-
-    if(errorAuthData){
-        console.error('supabase error while checking authorization', errorAuthData.message)
-        return res.status(500).json({errpr: 'supabase error while checking authorization'})
-    }
-
-    const userId = authData?.user.id;
+    const userId = req.userId;
 
     let query = supabase
     .from('opinions')
@@ -1070,24 +939,10 @@ router.get('/getUserOpinions', async(req, res) =>{
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
 
-router.post('/submitReply/:parent_id/:user_id/:post_id/:receiver_id',upload, async(req, res) => {
-    const token = req.headers.authorization?.split(' ')[1];
+router.post('/submitReply/:parent_id/:user_id/:post_id/:receiver_id', requireAuth, upload, async(req, res) => {
     const {parent_id, user_id, receiver_id, post_id} = req.params;
     const {reply} = req.body;
-
-    if(!token){
-        console.error('no token available')
-        return res.status(400).json({error: 'you are not authorized user'});
-    }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('supabase error while checking auhtorization:', errorAuthData.message);
-        return res.status(500).json({error: 'authorization error'});
-    }
-
-    const isOwner = authData?.user?.id === receiver_id
+    const isOwner = req.userId === receiver_id
 
     if(!parent_id || !user_id || !post_id){
         console.error('no parent_id || user_id || post_id available')
@@ -1165,7 +1020,7 @@ router.get('/getPostReplies/:parent_id', async(req, res) => {
 
 router.get('/viewOpinion/:postId/:userId', getViewOpinionController);
 
-router.post('/addOpinionReply/:parent_id/:user_id/:receiver_id', upload, addOpinionReplyController);
+router.post('/addOpinionReply/:parent_id/:user_id/:receiver_id', requireAuth, upload, addOpinionReplyController);
 
 router.get('/getOpinionReply/:parentId', getReplyOpinionsController);
 

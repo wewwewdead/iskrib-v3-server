@@ -2,11 +2,10 @@ import { updateFontColorService } from "../services/updateFontColorService.js";
 
 export const updateFont = async(req, res)=>{
     const {fontColor} = req.body;
-
-    const token = req.headers.authorization?.split(' ')[1];
+    const userId = req.userId;
 
     try {
-        await updateFontColorService(fontColor, token)
+        await updateFontColorService(fontColor, userId)
         return res.status(200).json({message: 'success'})
     } catch (error) {
         console.error(error)

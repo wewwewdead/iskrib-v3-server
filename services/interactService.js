@@ -1,24 +1,16 @@
 import supabase from "./supabase.js";
 
-export const likeService = async(journalId, receiverId, token) =>{
+export const likeService = async(journalId, receiverId, senderId) =>{
     if(!journalId || !receiverId){
         console.error('journalId or receiverId is undefined');
         throw {status: 400, error: 'journalId or receiverId is undefined'};
     }
 
-    if(!token){
-        console.error('token is undefiend');
-        throw {status: 400, error: 'token is undefined'}
+    if(!senderId){
+        console.error('senderId is undefined');
+        throw {status: 400, error: 'senderId is undefined'}
     }
 
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('supabase error while validation user authorization', errorAuthData.message);
-        throw{status: 500, error: 'failed to validate user'};
-    }
-
-    const senderId = authData?.user.id;
     const isOwnContent = senderId === receiverId;
 
     const {data: existingLike, error: errorExistingLike} = await supabase
@@ -94,25 +86,16 @@ export const likeService = async(journalId, receiverId, token) =>{
 
 }
 
-export const addCommentService = async(token, comments, postId, receiverId) => {
-    if(!token){
-        console.error('token is undefined')
-        throw {status: 400, error: 'token is undefined'};
-    }
-
+export const addCommentService = async(userId, comments, postId, receiverId) => {
     if(!comments || !postId || !receiverId){
         console.error('comments || postId || receiverId is undefined');
         throw {status: 400, error: 'comments || postId || receiverId is undefined'};
     }
 
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('supabase error:', errorAuthData.message);
-        throw {status: 500, error: 'supabase error while validating user'};
+    if(!userId){
+        console.error('userId is undefined')
+        throw {status: 400, error: 'userId is undefined'};
     }
-
-    const userId = authData.user.id;
     const isOwnContent = userId === receiverId;
 
     const insertNotifPromise = supabase
@@ -154,23 +137,15 @@ export const addCommentService = async(token, comments, postId, receiverId) => {
     return {message: 'success'};
 }
 
-export const addBoorkmarkSetvice = async(token, journalId) =>{
-    if(!token){
-        console.error('token is undefined');
-        throw {status: 400, error: 'token is undefined'}
+export const addBoorkmarkSetvice = async(userId, journalId) =>{
+    if(!userId){
+        console.error('userId is undefined');
+        throw {status: 400, error: 'userId is undefined'}
     }
     if(!journalId){
         console.error('journalId is undefined');
         throw {status: 400, error: 'journalId is undefined'};
     }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('supabase error while checking authentication', errorAuthData.message);
-        throw {status: 500, error: 'supabase error while checking authentication'};
-    }
-    const userId = authData?.user?.id;
 
     const {data:checkExisting, error: errorCheckExisting} = await supabase
     .from('bookmarks')
@@ -210,18 +185,33 @@ export const addBoorkmarkSetvice = async(token, journalId) =>{
     }
 }
 
-export const uploadOpinionReplyService = async(parent_id, opinion, user_id, receiver_id, opinion_uiid) =>{
-    if(!parent_id || !user_id || !receiver_id){
-        console.error('parentid, receiver_id or userid is undefined');
-        throw {status: 400, error:'parentid, receiver_id or userid is undefined'};
+export const uploadOpinionReplyService = async(parent_id, opinion, user_id) =>{
+    if(!parent_id || !user_id){
+        console.error('parentid or userid is undefined');
+        throw {status: 400, error:'parentid or userid is undefined'};
     }
     if(!opinion || !typeof(opinion) === 'string'){
         console.error('opinion is undefined or opinion is not a string')
         throw {status: 'opinion is undefined or opinion is not a string'};
     }
 
+    const {data: parentOpinion, error: errorParentOpinion} = await supabase
+    .from('opinions')
+    .select('user_id')
+    .eq('id', parent_id)
+    .maybeSingle();
+
+    if(errorParentOpinion){
+        console.error('supabase error while fetching parent opinion', errorParentOpinion.message);
+        throw {status: 500, error: 'supabase error while fetching parent opinion'};
+    }
+    if(!parentOpinion?.user_id){
+        console.error('parent opinion not found');
+        throw {status: 404, error: 'parent opinion not found'};
+    }
+
+    const receiver_id = parentOpinion.user_id;
     const isOwner = user_id === receiver_id;
-    console.log(isOwner)
 
     const insertNotifPromise = supabase
     .from('notification_opinions')

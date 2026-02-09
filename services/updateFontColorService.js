@@ -1,9 +1,9 @@
 import supabase from "./supabase.js"
 
-export const updateFontColorService = async(fontColor, token) =>{
-    if(!token){
-        console.error('token is undefined');
-        throw {status: 400, error: 'token is undefined'};
+export const updateFontColorService = async(fontColor, userId) =>{
+    if(!userId){
+        console.error('userId is undefined');
+        throw {status: 400, error: 'userId is undefined'};
     }
 
     if(!fontColor){
@@ -11,14 +11,6 @@ export const updateFontColorService = async(fontColor, token) =>{
         throw {status: 400, error: 'missing font color'}
     }
 
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    if(errorAuthData){
-        console.error('supabase error:', errorAuthData.message);
-        throw {status: 500, error:'supabase error while validating user'}
-    }
-
-    const userId = authData?.user.id;
     const {data: updateFont, error: errorUpdateFont} = await supabase
     .from('users')
     .update({profile_font_color: fontColor})

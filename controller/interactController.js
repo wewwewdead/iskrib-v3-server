@@ -2,9 +2,9 @@ import { addBoorkmarkSetvice, addCommentService, addFollowsService, likeService,
 
 export const likeController = async(req, res) => {
     const {journalId, receiverId,} = req.body;
-    const token = req.headers?.authorization?.split(' ')[1];
+    const userId = req.userId;
     try {
-        const response = await likeService(journalId, receiverId, token);
+        const response = await likeService(journalId, receiverId, userId);
 
         return res.status(200).json(response);
     } catch (error) {
@@ -15,10 +15,10 @@ export const likeController = async(req, res) => {
 
 export const addCommentController = async(req, res) =>{
     const {comments, postId, receiverId} = req.body;
-    const token = req.headers?.authorization?.split(' ')[1];
+    const userId = req.userId;
 
     try {
-        const response = await addCommentService(token, comments, postId, receiverId);
+        const response = await addCommentService(userId, comments, postId, receiverId);
 
         return res.status(200).json(response);
     } catch (error) {
@@ -28,11 +28,11 @@ export const addCommentController = async(req, res) =>{
 }
 
 export const addBoorkmarkController = async(req, res) =>{
-    const token = req.headers.authorization.split(' ')[1];
+    const userId = req.userId;
     const {journalId} = req.body;
 
     try {
-        const response = await addBoorkmarkSetvice(token, journalId);
+        const response = await addBoorkmarkSetvice(userId, journalId);
         return res.status(200).json(response);
     } catch (error) {
         console.error(error);
@@ -41,11 +41,12 @@ export const addBoorkmarkController = async(req, res) =>{
 }
 
 export const addOpinionReplyController = async(req, res) =>{
-    const {parent_id, user_id, receiver_id} = req.params;
+    const {parent_id} = req.params;
     const {opinion} = req.body;
+    const userId = req.userId;
 
     try {
-        const response = await uploadOpinionReplyService(parent_id, opinion, user_id, receiver_id);
+        const response = await uploadOpinionReplyService(parent_id, opinion, userId);
         return res.status(200).json(response);
     } catch (error) {
         console.error(error);
@@ -53,7 +54,8 @@ export const addOpinionReplyController = async(req, res) =>{
     }
 }
 export const addFollowController = async(req, res) => {
-    const {followerId, followingId} = req.body;
+    const {followingId} = req.body;
+    const followerId = req.userId;
 
     try {
         const response = await addFollowsService(followerId, followingId);

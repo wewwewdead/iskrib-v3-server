@@ -1,13 +1,13 @@
-import e from "express";
 import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadNotesImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, updateProfileLayoutService } from "../services/uploadService.js";
 
 export const uploadUserDataController = async(req, res) =>{
     const {bio, name} = req.body;
     const file = req.file;
-    const token = req.headers.authorization?.split(' ')[1];
+    const userId = req.userId;
+    const userEmail = req.authUser?.email;
 
     try {
-        await uploadUserDataService(bio, name, file, token)
+        await uploadUserDataService(bio, name, file, userId, userEmail)
         return res.status(200).json({message: 'success'})
     } catch (error) {
         console.error(error);
@@ -28,7 +28,7 @@ export const updateUserDataController = async(req, res) =>{
         fontColors
     } = await req.body;
     const image = req.file;
-    const token = req.headers.authorization?.split(' ')[1];
+    const userId = req.userId;
     const profileFontColor = profileFontColorFromBody || fontColor || fontColors;
 
     try {
@@ -40,7 +40,7 @@ export const updateUserDataController = async(req, res) =>{
             dominantColors,
             secondaryColors,
             profileFontColor,
-            token,
+            userId,
             image
         );
         return res.status(200).json({data: data});
@@ -65,12 +65,11 @@ export const uploadProfileBgController = async(req, res) =>{
 }
 
 export const uploadJournalImageController = async(req, res) =>{
-    const token = req.headers.authorization?.split(' ')[1];
-
+    const userId = req.userId;
     const image = req.file;
 
     try {
-        const image_url = await uploadJournalImageService(image, token);
+        const image_url = await uploadJournalImageService(image, userId);
 
         return res.status(200).json({img_url: image_url});
     } catch (error) {
@@ -81,9 +80,9 @@ export const uploadJournalImageController = async(req, res) =>{
 
 export const uploadJournalContentController = async(req, res) =>{
     const {content, title} = req.body;
-    const token = req.headers.authorization?.split(' ')[1];
+    const userId = req.userId;
     try {
-        await uploadJournalContentService(content, title, token);
+        await uploadJournalContentService(content, title, userId);
         return res.status(200).json({message: 'Content saved successfully!'});
     } catch (error) {
         console.error('failed to upload content:', error);
@@ -93,10 +92,10 @@ export const uploadJournalContentController = async(req, res) =>{
 
 export const updateJournalController = async(req, res) =>{
     const {content, title, journalId} = req.body;
-    const token = req.headers?.authorization?.split(' ')[1];
+    const userId = req.userId;
 
     try {
-        await updateJournalService(content, title, journalId, token);
+        await updateJournalService(content, title, journalId, userId);
         return res.status(200).json({message: 'journal was updated successfuly'});
     } catch (error) {
         console.error(error);
@@ -105,11 +104,11 @@ export const updateJournalController = async(req, res) =>{
 }
 
 export const uploadNotesImageController = async(req, res) => {
-    const token = req.headers.authorization?.split(' ')[1];
+    const userId = req.userId;
     const image = req.file;
 
     try {
-        const image_url = await uploadNotesImageService(image, token);
+        const image_url = await uploadNotesImageService(image, userId);
         return res.status(200).json({img_url: image_url});
     } catch (error) {
         console.error(error);
@@ -118,7 +117,7 @@ export const uploadNotesImageController = async(req, res) => {
 };
 
 export const updateProfileLayoutController = async(req, res) => {
-    const token = req.headers.authorization?.split(' ')[1];
+    const userId = req.userId;
     const { profileLayout } = req.body;
 
     try {
@@ -126,7 +125,7 @@ export const updateProfileLayoutController = async(req, res) => {
         if(typeof profileLayout === 'string'){
             parsed = JSON.parse(profileLayout);
         }
-        await updateProfileLayoutService(token, parsed);
+        await updateProfileLayoutService(userId, parsed);
         return res.status(200).json({message: 'profile layout updated successfully'});
     } catch (error) {
         console.error('error updating profile layout:', error);
@@ -137,11 +136,11 @@ export const updateProfileLayoutController = async(req, res) => {
 export const addReplyOpinionController = async(req, res) =>{
     const {reply} = req.body;
     const {parent_id} = req.params;
-    const token = req.headers?.authorization.split(' ')[1];
+    const userId = req.userId;
 
     try {
-        await addReplyOpinionService(reply, parent_id, token);
-        return req.status(200).json({message: 'reply was updated successfuly'})
+        await addReplyOpinionService(reply, parent_id, userId);
+        return res.status(200).json({message: 'reply was updated successfuly'})
     } catch (error) {
         console.error(error)
         return res.status(500).json({error: 'failed to add reply'})

@@ -1,12 +1,11 @@
 import { deleteJournalContentService, deleteJournalImageService } from "../services/deleteService.js";
 
 export const deleteJournalImageController = async(req, res) =>{
-    const token = req.headers.authorization?.split(' ')[1];
-
+    const userId = req.userId;
     const {filepath} = req.body;
 
     try {
-        await deleteJournalImageService(token, filepath);
+        await deleteJournalImageService(userId, filepath);
         return res.status(200).json({message: 'Image deleted succesfully'})
     } catch (error) {
         console.error(error);
@@ -17,10 +16,10 @@ export const deleteJournalImageController = async(req, res) =>{
 
 export const deleteJournalContent = async(req, res) =>{
     const {journalId} = req.params;
-    const token = req.headers?.authorization?.split(' ')[1];
+    const userId = req.userId;
 
     try {
-        await deleteJournalContentService(journalId, token);
+        await deleteJournalContentService(journalId, userId);
         return res.status(200).json({message:'success'});
     } catch (error) {
         console.error(error);

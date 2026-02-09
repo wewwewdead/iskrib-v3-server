@@ -96,23 +96,15 @@ const sanitizeProfileLayout = (layout) => {
     };
 };
 
-export const uploadUserDataService = async(bio, name, image, token) =>{
-    if(!token){
-        throw {staus: 400, error: 'token is undefined'};
+export const uploadUserDataService = async(bio, name, image, userId, userEmail) =>{
+    if(!userId){
+        throw {staus: 400, error: 'userId is undefined'};
     }
     if(!name || typeof name !== 'string' || name.length > 20){
         throw {status: 400, error: 'name should be a string and not more than 20 characters'}
     }
     if(!bio || typeof bio !== 'string' || bio.length > 150){
         throw {status: 400, error: 'bio should be a string and not more than 150 characters'}
-    }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token)
-    const userId = authData?.user?.id;
-
-    if(errorAuthData){
-        console.error('supabase error:', errorAuthData.message);
-        throw {status: 500, error: 'supabase error while checking authorization'}
     }
 
     let publicUrl = null;
@@ -125,8 +117,8 @@ export const uploadUserDataService = async(bio, name, image, token) =>{
     const data = {
         bio: bio,
         name: name,
-        id: authData.user.id,
-        user_email: authData.user.email,
+        id: userId,
+        user_email: userEmail || null,
         image_url: publicUrl ? publicUrl : null
     }
     const {data: uploadData, error:errorUploadData} = await supabase
@@ -141,10 +133,10 @@ export const uploadUserDataService = async(bio, name, image, token) =>{
     return true;
 }
 
-export const updateUserDataService = async(name, bio, profileBg, profileLayout, dominantColors, secondaryColors, profileFontColor, token, image) =>{
-    if(!token){
-        console.error('token is undefined')
-        throw {status: 400, error:'token is undefined'}
+export const updateUserDataService = async(name, bio, profileBg, profileLayout, dominantColors, secondaryColors, profileFontColor, userId, image) =>{
+    if(!userId){
+        console.error('userId is undefined')
+        throw {status: 400, error:'userId is undefined'}
     }
     if(!name || typeof name !== 'string' || name.length > 20){
         console.error('error: name should be string and not more than 20 characters')
@@ -153,13 +145,6 @@ export const updateUserDataService = async(name, bio, profileBg, profileLayout, 
     if(!bio || typeof bio !== 'string' || bio.length > 150){
         console.error('error: bio should be a string and not more than 150 characters')
         throw {status: 400, error: 'error: bio should be a string and not more than 150 characters'}
-    }
-
-    const {data: userData, error: errorUserData} = await supabase.auth.getUser(token);
-
-    if(errorUserData){
-        console.error('supabase error:', errorUserData.message);
-        throw {status: 500, error:'supabase error while checking user authorization'}
     }
 
     const parsedProfileBg = JSON.parse(profileBg);
@@ -189,8 +174,6 @@ export const updateUserDataService = async(name, bio, profileBg, profileLayout, 
     if(parsedProfileLayout && typeof parsedProfileLayout === 'object'){
         payload.profile_layout = sanitizeProfileLayout(parsedProfileLayout);
     }
-
-    const userId = userData.user.id;
 
     if(image){
         const image_url = await imageUploader(image, userId, 'avatars');
@@ -231,23 +214,14 @@ export const uploadBackgroundService = async(userId, image) => {
     }
 }
 
-export const uploadNotesImageService = async(image, token) =>{
-    if(!token){
-        console.error('token is undefined');
-        throw{status: 400, error: 'token is undefined'};
+export const uploadNotesImageService = async(image, userId) =>{
+    if(!userId){
+        console.error('userId is undefined');
+        throw{status: 400, error: 'userId is undefined'};
     }
     if(!image){
         console.error('file image is null');
         throw {status: 400, error: 'file image is undefined'};
-    }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    const userId = authData?.user.id;
-
-    if(errorAuthData){
-        console.error('error validating user authorization:', errorAuthData.message);
-        throw {status: 500, error: 'error validating user authorization'};
     }
 
     let image_buffer = await sharp(image.buffer)
@@ -266,24 +240,15 @@ export const uploadNotesImageService = async(image, token) =>{
     }
 }
 
-export const uploadJournalImageService = async(image, token) =>{
-    if(!token){
-        console.error('token is undefined');
-        throw{status: 400, error: 'token is undefined'};
+export const uploadJournalImageService = async(image, userId) =>{
+    if(!userId){
+        console.error('userId is undefined');
+        throw{status: 400, error: 'userId is undefined'};
     }
     if(!image){
         console.error('file image is null');
         throw {status: 400, error: 'file image is undefined'};
     }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-
-    const userId = authData?.user.id;
-
-    if(errorAuthData){
-        console.error('error validating user authorization:', errorAuthData.message);
-    }
-
 
     let image_buffer = await sharp(image.buffer)
     .rotate()
@@ -301,10 +266,10 @@ export const uploadJournalImageService = async(image, token) =>{
     }
 }
 
-export const uploadJournalContentService = async(content, title, token) =>{
-    if(!token){
-        console.error('token is undefined');
-        throw {status: 400, error: 'token is undefined'};
+export const uploadJournalContentService = async(content, title, userId) =>{
+    if(!userId){
+        console.error('userId is undefined');
+        throw {status: 400, error: 'userId is undefined'};
     }
 
     if(!title || !content){
@@ -326,14 +291,6 @@ export const uploadJournalContentService = async(content, title, token) =>{
         throw {status: 400, error: 'error while generating embeddings on a post!'};
     }
 
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-    if(errorAuthData){
-        console.error('user is not authorized', errorAuthData.message);
-        throw{status: 500, error: 'user is not authorized'};
-    }
-
-    const userId = authData?.user.id;
-    
     const {data, error} = await supabase
     .from('journals')
     .insert({user_id: userId, content: content, title: title, embeddings: embeddingResult});
@@ -345,7 +302,7 @@ export const uploadJournalContentService = async(content, title, token) =>{
     return true;
 }
 
-export const updateJournalService = async(content, title, journalId, token) => {
+export const updateJournalService = async(content, title, journalId, userId) => {
     if(!content && !title){
         console.error('content or title is undefined')
         throw {status: 400, error: 'content or title is undefined'};
@@ -355,9 +312,9 @@ export const updateJournalService = async(content, title, journalId, token) => {
         throw {status: 400, error: 'journalId is undefined'}
     }
 
-    if(!token){
-        console.error('token is undefined')
-        throw({status: 400, error: 'token is undefined'})
+    if(!userId){
+        console.error('userId is undefined')
+        throw({status: 400, error: 'userId is undefined'})
     }
 
     const parseData = ParseContent(content);
@@ -367,27 +324,13 @@ export const updateJournalService = async(content, title, journalId, token) => {
         throw{status: 400, error: 'failed to parse content'}
     }
 
-    const embeddingPromise = GenerateEmbeddings(title, parseData.wholeText);
-    const auhtDataPromise = supabase.auth.getUser(token);
-
-    const [embeddings, authData] = await Promise.all([
-        embeddingPromise, auhtDataPromise
-    ])
-
-    const {data: auhtDataResult, error: errorAuthDataResult} = authData;
-
-    if(errorAuthDataResult){
-        console.error('supabase error while authorizing user:', errorAuthDataResult.message);
-        throw {status: 500, error: 'supabase error while authorizing user'};
-    }
+    const embeddings = await GenerateEmbeddings(title, parseData.wholeText);
 
     const embeddingResult = embeddings;
     if(!embeddingResult || !Array.isArray(embeddingResult)){
         console.error('failed to generate embeddings')
         throw {status: 400, error: 'failed to generate embeddings'};
     }
-
-    const userId = auhtDataResult?.user.id;
 
     const journalData = {
         content: content,
@@ -409,23 +352,16 @@ export const updateJournalService = async(content, title, journalId, token) => {
     return true;
 }
 
-export const updateProfileLayoutService = async(token, profileLayout) => {
-    if(!token){
-        console.error('token is undefined');
-        throw {status: 400, error: 'token is undefined'};
+export const updateProfileLayoutService = async(userId, profileLayout) => {
+    if(!userId){
+        console.error('userId is undefined');
+        throw {status: 400, error: 'userId is undefined'};
     }
     if(!profileLayout || typeof profileLayout !== 'object'){
         console.error('profileLayout is invalid');
         throw {status: 400, error: 'profileLayout is invalid'};
     }
 
-    const {data: userData, error: errorUserData} = await supabase.auth.getUser(token);
-    if(errorUserData){
-        console.error('supabase error:', errorUserData.message);
-        throw {status: 500, error: 'supabase error while checking user authorization'};
-    }
-
-    const userId = userData.user.id;
     const sanitized = sanitizeProfileLayout(profileLayout);
 
     if(!sanitized){
@@ -446,23 +382,15 @@ export const updateProfileLayoutService = async(token, profileLayout) => {
     return true;
 };
 
-export const addReplyOpinionService = async(reply, parentId, token) => {
-    if(!token){
-        console.error('token is undefined');
-        throw {status: 400, error: 'token is undefined'};
+export const addReplyOpinionService = async(reply, parentId, userId) => {
+    if(!userId){
+        console.error('userId is undefined');
+        throw {status: 400, error: 'userId is undefined'};
     }
     if(!reply || typeof(reply) !== 'string'){
         console.error('reply should be a string');
         throw {status: 400, error: 'reply should be a string'}
     }
-
-    const {data: authData, error: errorAuthData} = await supabase.auth.getUser(token);
-    if(errorAuthData){
-        console.error('supabase error:', errorAuthData.message)
-        throw{status: 'supabase error while adding reply comments'}
-    }
-
-    const userId = authData?.user?.id;
 
     const {data ,error} = await supabase
     .from('opinions')
