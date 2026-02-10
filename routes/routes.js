@@ -8,7 +8,7 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, updateJournalController, updateProfileLayoutController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadNotesImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCommentsController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
+import { getBookmarksController, getCommentsController, getJournalByIdController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 
 const router = express.Router();
@@ -110,6 +110,7 @@ router.post('/save-journal', requireAuth, upload, uploadJournalContentController
 router.post('/update-journal', requireAuth, upload, updateJournalController);
 
 router.get('/journals', getJournalsController);
+router.get('/journal/:journalId', getJournalByIdController);
 
 router.get('/userJournals', getUserJournalsController);
 

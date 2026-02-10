@@ -90,6 +90,70 @@ export const getJournalsService = async(limit, userId, before) => {
     return journalData;
 }
 
+export const getJournalByIdService = async (journalId, userId) => {
+    if (!journalId) {
+        console.error('journalId is undefined');
+        throw { status: 400, error: 'journalId is undefined' };
+    }
+
+    const { data: journal, error: journalError } = await supabase
+        .from('journals')
+        .select(`
+            *,
+            users(*),
+            like_count: likes(count),
+            comment_count: comments(count),
+            bookmark_count: bookmarks(count)
+        `)
+        .eq('id', journalId)
+        .eq('privacy', 'public')
+        .maybeSingle();
+
+    if (journalError) {
+        console.error('supabase error while fetching journal by id:', journalError.message);
+        throw { status: 500, error: 'supabase error while fetching journal by id' };
+    }
+
+    if (!journal) {
+        return null;
+    }
+
+    let hasLiked = false;
+    let hasBookmarked = false;
+
+    if (userId) {
+        const [likeResult, bookmarkResult] = await Promise.all([
+            supabase
+                .from('likes')
+                .select('journal_id', { count: 'exact', head: true })
+                .eq('journal_id', journalId)
+                .eq('user_id', userId),
+            supabase
+                .from('bookmarks')
+                .select('journal_id', { count: 'exact', head: true })
+                .eq('journal_id', journalId)
+                .eq('user_id', userId)
+        ]);
+
+        if (likeResult.error || bookmarkResult.error) {
+            console.error(
+                'supabase error while fetching journal interactions:',
+                likeResult.error?.message || bookmarkResult.error?.message
+            );
+            throw { status: 500, error: 'supabase error while fetching journal interactions' };
+        }
+
+        hasLiked = (likeResult.count || 0) > 0;
+        hasBookmarked = (bookmarkResult.count || 0) > 0;
+    }
+
+    return {
+        ...journal,
+        has_liked: hasLiked,
+        has_bookmarked: hasBookmarked
+    };
+}
+
 export const getUserJournalsService = async(limit, before, userId) =>{
     if(!userId){
         console.error('userid is undefined');
