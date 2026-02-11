@@ -1,4 +1,4 @@
-import { getBookmarksService, getCommentsService, getJournalByIdService, getJournalsService, getOpinionReplyService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService } from "../services/getService.js";
+import { getBookmarksService, getCommentsService, getJournalByIdService, getJournalsService, getOpinionReplyService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -14,7 +14,8 @@ export const getJournalsController = async(req, res) =>{
 }
 
 export const getUserJournalsController = async(req, res) =>{
-    const{limit = 5, before, userId} = req.query;
+    const {limit = 5, before} = req.query;
+    const userId = req.userId || req.query.userId;
 
     try {
         const data = await getUserJournalsService(limit, before, userId);
@@ -77,7 +78,8 @@ export const getReplyOpinionsController = async(req, res) =>{
 }
 
 export const getBookmarksController = async(req, res) =>{
-    const {before, limit, userId} = req.query;
+    const {before, limit} = req.query;
+    const userId = req.userId || req.query.userId;
 
     try {
         const response = await getBookmarksService(userId, before, limit);
@@ -102,5 +104,17 @@ export const getJournalByIdController = async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'failed to fetch journal' });
+    }
+}
+
+export const searchJournalsController = async(req, res) => {
+    const {query = '', limit = 10, userId} = req.query;
+
+    try {
+        const response = await searchJournalsService(query, limit, userId);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || 'failed to search journals'});
     }
 }

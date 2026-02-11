@@ -286,7 +286,7 @@ export const uploadJournalContentService = async(content, title, userId) =>{
 
     const embeddingResult = await GenerateEmbeddings(title, parseData.wholeText);
 
-    if(!embeddingResult && !Array.isArray(embeddingResult)){
+    if(!embeddingResult || !Array.isArray(embeddingResult) || embeddingResult.length === 0){
         console.error('error while generating embeddings on a post!');
         throw {status: 400, error: 'error while generating embeddings on a post!'};
     }
@@ -327,7 +327,7 @@ export const updateJournalService = async(content, title, journalId, userId) => 
     const embeddings = await GenerateEmbeddings(title, parseData.wholeText);
 
     const embeddingResult = embeddings;
-    if(!embeddingResult || !Array.isArray(embeddingResult)){
+    if(!embeddingResult || !Array.isArray(embeddingResult) || embeddingResult.length === 0){
         console.error('failed to generate embeddings')
         throw {status: 400, error: 'failed to generate embeddings'};
     }

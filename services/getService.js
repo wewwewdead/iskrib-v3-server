@@ -1,4 +1,64 @@
 import supabase from "./supabase.js";
+import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
+
+const SEARCH_LIMIT_MAX = 20;
+const SEARCH_QUERY_MIN_LENGTH = 2;
+
+const normalizeSearchQuery = (query) => {
+    if(typeof query !== 'string'){
+        return '';
+    }
+
+    return query
+        .replace(/\s+/g, ' ')
+        .trim();
+};
+
+const attachUserInteractionFlags = async (journals, userId) => {
+    if(!Array.isArray(journals) || journals.length === 0){
+        return [];
+    }
+
+    if(!userId){
+        return journals.map((journal) => ({
+            ...journal,
+            has_liked: false,
+            has_bookmarked: false
+        }));
+    }
+
+    const journalIds = journals.map((journal) => journal.id);
+
+    const [userLikes, userBookmarks] = await Promise.all([
+        supabase
+            .from('likes')
+            .select('journal_id')
+            .in('journal_id', journalIds)
+            .eq('user_id', userId),
+        supabase
+            .from('bookmarks')
+            .select('journal_id')
+            .in('journal_id', journalIds)
+            .eq('user_id', userId)
+    ]);
+
+    const {data: userLikesResult, error: errorUserLikeResult} = userLikes;
+    const {data: userBookmarksResult, error: errorUserBookmarksResult} = userBookmarks;
+
+    if(errorUserLikeResult || errorUserBookmarksResult){
+        console.error('supabase error while fetching journal interactions:', errorUserLikeResult?.message || errorUserBookmarksResult?.message);
+        throw {status: 500, error: 'supabase error on fetching user likes or user bookmarks'};
+    }
+
+    const userHasLikedSet = new Set(userLikesResult?.map((journal) => journal.journal_id) || []);
+    const userHasBookmarkedSet = new Set(userBookmarksResult?.map((journal) => journal.journal_id) || []);
+
+    return journals.map((journal) => ({
+        ...journal,
+        has_liked: userHasLikedSet.has(journal.id),
+        has_bookmarked: userHasBookmarkedSet.has(journal.id)
+    }));
+};
 
 export const getJournalsService = async(limit, userId, before) => {
     if(isNaN(limit) || limit > 20 || limit < 1){
@@ -530,4 +590,125 @@ export const getBookmarksService = async(userId, before, limit) => {
         hasMore: hasMore,
         totalBookmarks: before ? null : count
     }
+}
+
+export const searchJournalsService = async(query, limit, userId) => {
+    const normalizedQuery = normalizeSearchQuery(query);
+    if(!normalizedQuery || normalizedQuery.length < SEARCH_QUERY_MIN_LENGTH){
+        throw {status: 400, error: `query should be at least ${SEARCH_QUERY_MIN_LENGTH} characters`};
+    }
+
+    if(isNaN(limit) || limit < 1 || limit > SEARCH_LIMIT_MAX){
+        throw {status: 400, error: `limit should be an integer between 1 and ${SEARCH_LIMIT_MAX}`};
+    }
+
+    const parsedLimit = parseInt(limit);
+    const fetchLimit = Math.min(parsedLimit * 3, 60);
+
+    const selectColumns = `
+        *,
+        users(*),
+        like_count: likes(count),
+        comment_count: comments(count),
+        bookmark_count: bookmarks(count)
+    `;
+
+    // Prefer semantic retrieval. If pgvector RPC is unavailable or errors,
+    // fallback to keyword search so endpoint still returns useful data.
+    try {
+        const queryEmbedding = await GenerateEmbeddings(normalizedQuery, '');
+
+        if(Array.isArray(queryEmbedding) && queryEmbedding.length > 0){
+            const {data: matches, error: matchError} = await supabase.rpc('match_public_journals', {
+                query_embedding: queryEmbedding,
+                match_count: fetchLimit,
+                similarity_threshold: 0.35
+            });
+
+            if(matchError){
+                console.error('semantic search rpc error:', matchError.message);
+            } else if(Array.isArray(matches) && matches.length > 0){
+                const matchIds = matches.map((row) => row.id);
+                const similarityMap = new Map(matches.map((row) => [row.id, row.similarity]));
+
+                const {data: journals, error: errorJournals} = await supabase
+                    .from('journals')
+                    .select(selectColumns)
+                    .in('id', matchIds)
+                    .eq('privacy', 'public');
+
+                if(errorJournals){
+                    console.error('supabase error while fetching semantic search journals:', errorJournals.message);
+                    throw {status: 500, error: 'supabase error while fetching semantic search journals'};
+                }
+
+                const journalById = new Map((journals || []).map((journal) => [journal.id, journal]));
+                const orderedSemantic = matchIds
+                    .map((id) => journalById.get(id))
+                    .filter(Boolean)
+                    .map((journal) => ({
+                        ...journal,
+                        similarity: similarityMap.get(journal.id) || null
+                    }));
+
+                const withInteraction = await attachUserInteractionFlags(orderedSemantic, userId);
+                const hasMore = withInteraction.length > parsedLimit;
+
+                return {
+                    data: hasMore ? withInteraction.slice(0, parsedLimit) : withInteraction,
+                    hasMore: hasMore,
+                    mode: 'semantic'
+                };
+            }
+        }
+    } catch (error) {
+        console.error('semantic embedding/search fallback error:', error?.message || error);
+    }
+
+    const escapedQuery = normalizedQuery.replace(/[%_]/g, (match) => `\\${match}`);
+
+    const [titleResult, contentResult] = await Promise.all([
+        supabase
+            .from('journals')
+            .select(selectColumns)
+            .eq('privacy', 'public')
+            .ilike('title', `%${escapedQuery}%`)
+            .order('created_at', {ascending: false})
+            .order('id', {ascending: false})
+            .limit(parsedLimit + 1),
+        supabase
+            .from('journals')
+            .select(selectColumns)
+            .eq('privacy', 'public')
+            .ilike('content', `%${escapedQuery}%`)
+            .order('created_at', {ascending: false})
+            .order('id', {ascending: false})
+            .limit(parsedLimit + 1)
+    ]);
+
+    if(titleResult.error || contentResult.error){
+        console.error('keyword search error:', titleResult.error?.message || contentResult.error?.message);
+        throw {status: 500, error: 'supabase error while searching journals'};
+    }
+
+    const keywordMap = new Map();
+    (titleResult.data || []).forEach((journal) => {
+        keywordMap.set(journal.id, journal);
+    });
+    (contentResult.data || []).forEach((journal) => {
+        if(!keywordMap.has(journal.id)){
+            keywordMap.set(journal.id, journal);
+        }
+    });
+
+    const keywordJournals = [...keywordMap.values()];
+
+    const withInteraction = await attachUserInteractionFlags(keywordJournals || [], userId);
+    const hasMore = withInteraction.length > parsedLimit;
+
+    return {
+        data: hasMore ? withInteraction.slice(0, parsedLimit) : withInteraction,
+        hasMore: hasMore,
+        mode: 'keyword'
+    };
 }

@@ -52,7 +52,7 @@ export const updateUserDataController = async(req, res) =>{
 
 
 export const uploadProfileBgController = async(req, res) =>{
-    const {userId} = req.body;
+    const userId = req.userId || req.body?.userId;
     const file = req.file;
 
     try {

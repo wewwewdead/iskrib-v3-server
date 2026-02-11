@@ -8,7 +8,7 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, updateJournalController, updateProfileLayoutController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadNotesImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCommentsController, getJournalByIdController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController } from "../controller/getController.js";
+import { getBookmarksController, getCommentsController, getJournalByIdController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 
 const router = express.Router();
@@ -18,31 +18,60 @@ const upload = multer({
     limits: {fileSize: 10 * 1024 * 1024},
 }).single('image');
 
-const requireAuth = async (req, res, next) => {
-    const authHeader = req.headers?.authorization;
-    if (!authHeader) {
-        return res.status(401).json({ error: 'not authorized' });
-    }
+const extractBearerToken = (authHeader = "") => {
+    const trimmed = typeof authHeader === "string" ? authHeader.trim() : "";
+    if (!trimmed) return "";
 
-    // Accept "Bearer <token>" (any casing) and raw token fallback.
-    let token = authHeader.trim();
-    const bearerMatch = token.match(/^Bearer\s+(.+)$/i);
+    const bearerMatch = trimmed.match(/^Bearer\s+(.+)$/i);
     if (bearerMatch?.[1]) {
-        token = bearerMatch[1].trim();
+        return bearerMatch[1].trim();
     }
 
+    return trimmed;
+};
+
+const resolveAuthUser = async (token) => {
     if (!token) {
-        return res.status(401).json({ error: 'not authorized' });
+        return { user: null, error: null };
     }
 
     const { data: authData, error: authError } = await supabase.auth.getUser(token);
     if (authError || !authData?.user?.id) {
-        console.error('auth middleware error:', authError?.message || 'missing user id');
+        return { user: null, error: authError || new Error("missing user id") };
+    }
+
+    return { user: authData.user, error: null };
+};
+
+const requireAuth = async (req, res, next) => {
+    const token = extractBearerToken(req.headers?.authorization);
+    if (!token) {
         return res.status(401).json({ error: 'not authorized' });
     }
 
-    req.userId = authData.user.id;
-    req.authUser = authData.user;
+    const { user, error } = await resolveAuthUser(token);
+    if (error || !user?.id) {
+        console.error('auth middleware error:', error?.message || 'missing user id');
+        return res.status(401).json({ error: 'not authorized' });
+    }
+
+    req.userId = user.id;
+    req.authUser = user;
+    return next();
+};
+
+const optionalAuth = async (req, _res, next) => {
+    const token = extractBearerToken(req.headers?.authorization);
+    if (!token) {
+        return next();
+    }
+
+    const { user } = await resolveAuthUser(token);
+    if (user?.id) {
+        req.userId = user.id;
+        req.authUser = user;
+    }
+
     return next();
 };
 
@@ -99,7 +128,7 @@ router.post('/updateProfileLayout', requireAuth, express.json(), updateProfileLa
 
 router.post('/uploadNotesImage', requireAuth, upload, uploadNotesImageController);
 
-router.post('/uploadBackground', upload, uploadProfileBgController);
+router.post('/uploadBackground', requireAuth, upload, uploadProfileBgController);
 
 router.post('/save-journal-image', requireAuth, upload, uploadJournalImageController);
 
@@ -110,9 +139,10 @@ router.post('/save-journal', requireAuth, upload, uploadJournalContentController
 router.post('/update-journal', requireAuth, upload, updateJournalController);
 
 router.get('/journals', getJournalsController);
+router.get('/journals/search', searchJournalsController);
 router.get('/journal/:journalId', getJournalByIdController);
 
-router.get('/userJournals', getUserJournalsController);
+router.get('/userJournals', requireAuth, getUserJournalsController);
 
 router.get('/visitedUserJournals', getVisitedUserJournalsController);
 
@@ -126,7 +156,7 @@ router.get('/getComments', getCommentsController);
 
 router.post('/addBoorkmark', requireAuth, upload, addBoorkmarkController);
 
-router.get('/getBookmarks', getBookmarksController)
+router.get('/getBookmarks', requireAuth, getBookmarksController)
 
 router.post('/addFollows', requireAuth, upload, addFollowController);
 
@@ -178,9 +208,9 @@ router.get('/getFollowsData', async(req, res) => {
 
 })
 
-router.get('/getCountNotifications', async(req, res) =>{
-    const {userId} = req.query;
-    if(!userId) return res.attachment(400).json({error: 'no userid'});
+router.get('/getCountNotifications', requireAuth, async(req, res) =>{
+    const userId = req.userId;
+    if(!userId) return res.status(400).json({error: 'no userid'});
 
     const [journalCount, opinionCount] = await Promise.all([
         supabase
@@ -581,10 +611,10 @@ router.post('/updateCollection', requireAuth, upload, async(req, res) =>{
 
 })
 
-router.get('/getCollections', async(req, res) => {
-    const {userId, before, limit} = req.query;
+router.get('/getCollections', optionalAuth, async(req, res) => {
+    const {userId: targetUserId, before, limit} = req.query;
     
-    if(!userId){
+    if(!targetUserId){
         console.error('error: no collectionid or userid')
         return res.status(400).json({error: 'no collection id or user id'})
     }
@@ -598,7 +628,7 @@ router.get('/getCollections', async(req, res) => {
     let query = supabase
     .from('collections')
     .select('*')
-    .eq('user_id', userId)
+    .eq('user_id', targetUserId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)
@@ -701,8 +731,9 @@ router.get('/getCollectionJournals', requireAuth, async(req, res) =>{
 
 })
 
-router.get('/getNotCollectedPost', async(req, res) => {
-    const {before, limit, userId, collectionId} = req.query;
+router.get('/getNotCollectedPost', requireAuth, async(req, res) => {
+    const {before, limit, collectionId} = req.query;
+    const userId = req.userId;
 
     const parsedLimit = parseInt(limit);
     if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
@@ -791,10 +822,11 @@ router.delete('/deleteCollection/:collectionId', requireAuth, async(req, res) =>
     return res.status(200).json({message: 'delete successful'});
 })
 
-router.post('/updatePrivacyCollection', upload, async(req, res) => {
-    const {collectionId, userId, isPublic} = req.body;
+router.post('/updatePrivacyCollection', requireAuth, upload, async(req, res) => {
+    const {collectionId, isPublic} = req.body;
+    const userId = req.userId;
 
-    if(!collectionId && !userId){
+    if(!collectionId || !userId){
         console.error('no collectionId or userId');
         return res.status(400).json({error: 'error no collectionId or userId'});
     }
