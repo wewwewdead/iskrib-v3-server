@@ -1,4 +1,4 @@
-import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadNotesImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, updateProfileLayoutService } from "../services/uploadService.js";
+import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService } from "../services/uploadService.js";
 
 export const uploadUserDataController = async(req, res) =>{
     const {bio, name} = req.body;
@@ -20,7 +20,6 @@ export const updateUserDataController = async(req, res) =>{
         name,
         bio,
         profileBg,
-        profileLayout,
         dominantColors,
         secondaryColors,
         fontColor,
@@ -36,7 +35,6 @@ export const updateUserDataController = async(req, res) =>{
             name,
             bio,
             profileBg,
-            profileLayout,
             dominantColors,
             secondaryColors,
             profileFontColor,
@@ -102,36 +100,6 @@ export const updateJournalController = async(req, res) =>{
         return res.status(500).json({error: 'failed to update journal'})
     }
 }
-
-export const uploadNotesImageController = async(req, res) => {
-    const userId = req.userId;
-    const image = req.file;
-
-    try {
-        const image_url = await uploadNotesImageService(image, userId);
-        return res.status(200).json({img_url: image_url});
-    } catch (error) {
-        console.error(error);
-        return res.status(error?.status || 500).json({error: error?.error || 'error uploading notes image'});
-    }
-};
-
-export const updateProfileLayoutController = async(req, res) => {
-    const userId = req.userId;
-    const { profileLayout } = req.body;
-
-    try {
-        let parsed = profileLayout;
-        if(typeof profileLayout === 'string'){
-            parsed = JSON.parse(profileLayout);
-        }
-        await updateProfileLayoutService(userId, parsed);
-        return res.status(200).json({message: 'profile layout updated successfully'});
-    } catch (error) {
-        console.error('error updating profile layout:', error);
-        return res.status(error?.status || 500).json({error: error?.error || 'error updating profile layout'});
-    }
-};
 
 export const addReplyOpinionController = async(req, res) =>{
     const {reply} = req.body;

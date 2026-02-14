@@ -1,4 +1,4 @@
-import { getBookmarksService, getCommentsService, getJournalByIdService, getJournalsService, getOpinionReplyService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService } from "../services/getService.js";
+import { getBookmarksService, getCommentsService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -116,5 +116,46 @@ export const searchJournalsController = async(req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(error?.status || 500).json({error: error?.error || 'failed to search journals'});
+    }
+}
+
+export const getMonthlyHottestJournalsController = async(req, res) => {
+    const {limit = 10, userId} = req.query;
+
+    try {
+        const response = await getMonthlyHottestJournalsService(limit, userId);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch monthly hottest journals'});
+    }
+}
+
+export const getProfileMediaController = async(req, res) => {
+    const userId = req.userId;
+    const {limit = 5, cursor = null} = req.query;
+
+    try {
+        const response = await getProfileMediaService(userId, limit, cursor);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch profile media'});
+    }
+}
+
+export const getVisitedProfileMediaController = async(req, res) => {
+    const {userId, limit = 5, cursor = null} = req.query;
+
+    if(!userId){
+        return res.status(400).json({error: 'userId is undefined'});
+    }
+
+    try {
+        const response = await getProfileMediaService(userId, limit, cursor);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch visited profile media'});
     }
 }

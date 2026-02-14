@@ -5,10 +5,10 @@ import sharp from 'sharp';
 import { verfifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
-import { addReplyOpinionController, updateJournalController, updateProfileLayoutController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadNotesImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
+import { addReplyOpinionController, updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
-import { deleteJournalContent, deleteJournalImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCommentsController, getJournalByIdController, getJournalsController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
+import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
+import { getBookmarksController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 
 const router = express.Router();
@@ -124,25 +124,25 @@ router.post('/update-user-data', requireAuth, upload, updateUserDataController);
 
 router.post('/updateFontColor', requireAuth, upload, updateFont);
 
-router.post('/updateProfileLayout', requireAuth, express.json(), updateProfileLayoutController);
-
-router.post('/uploadNotesImage', requireAuth, upload, uploadNotesImageController);
-
 router.post('/uploadBackground', requireAuth, upload, uploadProfileBgController);
 
 router.post('/save-journal-image', requireAuth, upload, uploadJournalImageController);
 
 router.post('/delete-journal-images', requireAuth, upload, deleteJournalImageController);
+router.delete('/media/image', requireAuth, deleteProfileMediaImageController);
 
 router.post('/save-journal', requireAuth, upload, uploadJournalContentController);
 
 router.post('/update-journal', requireAuth, upload, updateJournalController);
 
 router.get('/journals', getJournalsController);
+router.get('/journals/hottest-monthly', getMonthlyHottestJournalsController);
 router.get('/journals/search', searchJournalsController);
 router.get('/journal/:journalId', getJournalByIdController);
 
 router.get('/userJournals', requireAuth, getUserJournalsController);
+router.get('/profileMedia', requireAuth, getProfileMediaController);
+router.get('/visitedProfileMedia', requireAuth, getVisitedProfileMediaController);
 
 router.get('/visitedUserJournals', getVisitedUserJournalsController);
 

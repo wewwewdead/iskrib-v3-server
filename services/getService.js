@@ -3,6 +3,10 @@ import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
 
 const SEARCH_LIMIT_MAX = 20;
 const SEARCH_QUERY_MIN_LENGTH = 2;
+const PROFILE_MEDIA_BUCKETS = ['background', 'journal-images', 'avatars'];
+const PROFILE_MEDIA_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.svg'];
+const PROFILE_MEDIA_LIMIT_DEFAULT = 5;
+const PROFILE_MEDIA_LIMIT_MAX = 20;
 
 const normalizeSearchQuery = (query) => {
     if(typeof query !== 'string'){
@@ -59,6 +63,245 @@ const attachUserInteractionFlags = async (journals, userId) => {
         has_bookmarked: userHasBookmarkedSet.has(journal.id)
     }));
 };
+
+const hasSupportedMediaExtension = (fileName = '') => {
+    const lowerFileName = fileName.toLowerCase();
+    return PROFILE_MEDIA_EXTENSIONS.some((ext) => lowerFileName.endsWith(ext));
+};
+
+const parseMediaTimestamp = (item = {}) => {
+    const fileName = item?.name || '';
+    const timestampPrefix = fileName.match(/^(\d+)_/);
+
+    if(timestampPrefix?.[1]){
+        const parsedPrefix = Number(timestampPrefix[1]);
+        if(!Number.isNaN(parsedPrefix)){
+            return parsedPrefix;
+        }
+    }
+
+    const parsedDate = Date.parse(item?.created_at || item?.updated_at || '');
+    return Number.isNaN(parsedDate) ? 0 : parsedDate;
+};
+
+const createInitialMediaCursorState = () => ({
+    offsets: Object.fromEntries(PROFILE_MEDIA_BUCKETS.map((bucket) => [bucket, 0])),
+    exhausted: Object.fromEntries(PROFILE_MEDIA_BUCKETS.map((bucket) => [bucket, false])),
+    pending: []
+});
+
+const parseMediaCursor = (cursor) => {
+    if(!cursor){
+        return createInitialMediaCursorState();
+    }
+
+    try {
+        const decoded = Buffer.from(cursor, 'base64').toString('utf8');
+        const parsed = JSON.parse(decoded);
+        const initial = createInitialMediaCursorState();
+
+        if(parsed?.offsets && typeof parsed.offsets === 'object'){
+            PROFILE_MEDIA_BUCKETS.forEach((bucket) => {
+                const value = Number(parsed.offsets[bucket]);
+                initial.offsets[bucket] = Number.isNaN(value) || value < 0 ? 0 : value;
+            });
+        }
+
+        if(parsed?.exhausted && typeof parsed.exhausted === 'object'){
+            PROFILE_MEDIA_BUCKETS.forEach((bucket) => {
+                initial.exhausted[bucket] = Boolean(parsed.exhausted[bucket]);
+            });
+        }
+
+        if(Array.isArray(parsed?.pending)){
+            initial.pending = parsed.pending
+                .filter((item) => PROFILE_MEDIA_BUCKETS.includes(item?.bucket) && typeof item?.path === 'string' && typeof item?.name === 'string')
+                .map((item) => ({
+                    bucket: item.bucket,
+                    path: item.path,
+                    name: item.name,
+                    createdAt: item.createdAt || null,
+                    timestamp: Number(item.timestamp) || 0
+                }));
+        }
+
+        return initial;
+    } catch {
+        return createInitialMediaCursorState();
+    }
+};
+
+const encodeMediaCursor = (state) => {
+    const payload = JSON.stringify(state);
+    return Buffer.from(payload, 'utf8').toString('base64');
+};
+
+const resolveMediaUrl = async(bucket, path) => {
+    const {data: signedUrlData, error: signedUrlError} = await supabase.storage
+        .from(bucket)
+        .createSignedUrl(path, 60 * 60);
+
+    if(!signedUrlError && signedUrlData?.signedUrl){
+        return signedUrlData.signedUrl;
+    }
+
+    const {data: publicUrlData} = supabase.storage
+        .from(bucket)
+        .getPublicUrl(path);
+
+    return publicUrlData?.publicUrl || null;
+};
+
+const listMediaChunkForBucket = async(bucket, userId, offset, limit) => {
+    const folderPath = `user_id_${userId}`;
+
+    const {data: bucketItems, error: bucketError} = await supabase.storage
+        .from(bucket)
+        .list(folderPath, {
+            limit: limit,
+            offset: offset,
+            sortBy: {column: 'name', order: 'desc'}
+        });
+
+    if(bucketError){
+        return {
+            bucket: bucket,
+            nextOffset: offset,
+            exhausted: true,
+            items: [],
+            error: bucketError.message
+        };
+    }
+
+    const listedItems = Array.isArray(bucketItems) ? bucketItems : [];
+    const normalizedItems = listedItems
+        .filter((item) => item?.name && hasSupportedMediaExtension(item.name))
+        .map((item) => {
+            const path = `${folderPath}/${item.name}`;
+            const createdAt = item.created_at || item.updated_at || null;
+
+            return {
+                bucket: bucket,
+                path: path,
+                name: item.name,
+                createdAt: createdAt,
+                timestamp: parseMediaTimestamp(item)
+            };
+        });
+
+    return {
+        bucket: bucket,
+        nextOffset: offset + listedItems.length,
+        exhausted: listedItems.length < limit,
+        items: normalizedItems,
+        error: null
+    };
+};
+
+const hydrateMediaItems = async(items) => {
+    if(!Array.isArray(items) || items.length === 0){
+        return [];
+    }
+
+    const hydrated = await Promise.all(items.map(async(item) => {
+        const url = await resolveMediaUrl(item.bucket, item.path);
+        if(!url){
+            return null;
+        }
+
+        return {
+            id: `${item.bucket}-${item.path}`,
+            bucket: item.bucket,
+            path: item.path,
+            name: item.name,
+            createdAt: item.createdAt || null,
+            timestamp: item.timestamp || 0,
+            url: url
+        };
+    }));
+
+    return hydrated.filter(Boolean);
+};
+
+export const getProfileMediaService = async(userId, limit = PROFILE_MEDIA_LIMIT_DEFAULT, cursor = null) => {
+    if(!userId){
+        throw {status: 400, error: 'userId is undefined'};
+    }
+
+    const parsedLimit = Number(limit);
+    if(Number.isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > PROFILE_MEDIA_LIMIT_MAX){
+        throw {status: 400, error: `limit should be an integer between 1 and ${PROFILE_MEDIA_LIMIT_MAX}`};
+    }
+
+    const cursorState = parseMediaCursor(cursor);
+    const offsets = {...cursorState.offsets};
+    const exhausted = {...cursorState.exhausted};
+    const pending = Array.isArray(cursorState.pending) ? [...cursorState.pending] : [];
+    const unavailableBuckets = [];
+    const maxIterations = 6;
+    let iterationCount = 0;
+
+    while(
+        pending.length < parsedLimit &&
+        PROFILE_MEDIA_BUCKETS.some((bucket) => !exhausted[bucket]) &&
+        iterationCount < maxIterations
+    ){
+        iterationCount += 1;
+        const activeBuckets = PROFILE_MEDIA_BUCKETS.filter((bucket) => !exhausted[bucket]);
+        const chunkResults = await Promise.all(
+            activeBuckets.map((bucket) => listMediaChunkForBucket(bucket, userId, offsets[bucket] || 0, parsedLimit))
+        );
+
+        chunkResults.forEach((result) => {
+            offsets[result.bucket] = result.nextOffset;
+            exhausted[result.bucket] = result.exhausted;
+
+            if(result.error){
+                console.error(`supabase storage list error on ${result.bucket}:`, result.error);
+                unavailableBuckets.push(result.bucket);
+                return;
+            }
+
+            pending.push(...result.items);
+        });
+
+        if(chunkResults.every((result) => result.items.length === 0)){
+            break;
+        }
+    }
+
+    pending.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+    const selectedItems = pending.slice(0, parsedLimit);
+    const remainingItems = pending.slice(parsedLimit);
+    const hydratedSelectedItems = await hydrateMediaItems(selectedItems);
+
+    // If a URL cannot be created for some selected items, try to fill from remaining items.
+    if(hydratedSelectedItems.length < parsedLimit && remainingItems.length > 0){
+        const neededItemsCount = parsedLimit - hydratedSelectedItems.length;
+        const fallbackCandidates = remainingItems.splice(0, neededItemsCount);
+        const hydratedFallbackItems = await hydrateMediaItems(fallbackCandidates);
+        hydratedSelectedItems.push(...hydratedFallbackItems);
+    }
+
+    const hasMore = remainingItems.length > 0 || PROFILE_MEDIA_BUCKETS.some((bucket) => !exhausted[bucket]);
+    const dedupedUnavailableBuckets = [...new Set(unavailableBuckets)];
+
+    const nextCursor = hasMore
+        ? encodeMediaCursor({
+            offsets: offsets,
+            exhausted: exhausted,
+            pending: remainingItems
+        })
+        : null;
+
+    return {
+        data: hydratedSelectedItems,
+        hasMore: hasMore,
+        nextCursor: nextCursor,
+        unavailableBuckets: dedupedUnavailableBuckets
+    };
+}
 
 export const getJournalsService = async(limit, userId, before) => {
     if(isNaN(limit) || limit > 20 || limit < 1){
@@ -148,6 +391,73 @@ export const getJournalsService = async(limit, userId, before) => {
         hasMore: hasMore
     }
     return journalData;
+}
+
+export const getMonthlyHottestJournalsService = async(limit, userId) => {
+    if(isNaN(limit) || limit < 1 || limit > 10){
+        throw {status: 400, error: 'limit should be an integer between 1 and 10'};
+    }
+
+    const parsedLimit = parseInt(limit);
+    const now = new Date();
+    const monthStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+    const nextMonthStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
+
+    const {data: journals, error: journalsError} = await supabase
+        .from('journals')
+        .select(`
+            *,
+            users(*),
+            like_count: likes(count),
+            comment_count: comments(count),
+            bookmark_count: bookmarks(count)
+        `)
+        .eq('privacy', 'public')
+        .gte('created_at', monthStartUtc.toISOString())
+        .lt('created_at', nextMonthStartUtc.toISOString());
+
+    if(journalsError){
+        console.error('supabase error while fetching monthly hottest journals:', journalsError.message);
+        throw {status: 500, error: 'supabase error while fetching monthly hottest journals'};
+    }
+
+    const journalsWithInteractions = await attachUserInteractionFlags(journals || [], userId);
+    const scored = journalsWithInteractions.map((journal) => {
+        const likes = journal?.like_count?.[0]?.count || 0;
+        const comments = journal?.comment_count?.[0]?.count || 0;
+        const bookmarks = journal?.bookmark_count?.[0]?.count || 0;
+        const views = journal?.views || 0;
+        const hotScore = (views * 6) + (likes * 3) + (comments * 2) + (bookmarks * 2);
+
+        return {
+            ...journal,
+            hot_score: hotScore
+        };
+    });
+
+    scored.sort((a, b) => {
+        const scoreDiff = (b?.hot_score || 0) - (a?.hot_score || 0);
+        if(scoreDiff !== 0){
+            return scoreDiff;
+        }
+
+        const dateDiff = new Date(b?.created_at || 0) - new Date(a?.created_at || 0);
+        if(dateDiff !== 0){
+            return dateDiff;
+        }
+
+        return (b?.id || 0) - (a?.id || 0);
+    });
+
+    return {
+        data: scored.slice(0, parsedLimit),
+        period: {
+            startUtc: monthStartUtc.toISOString(),
+            endUtc: nextMonthStartUtc.toISOString(),
+            timezone: 'UTC'
+        },
+        totalCandidates: scored.length
+    };
 }
 
 export const getJournalByIdService = async (journalId, userId) => {
