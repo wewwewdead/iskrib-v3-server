@@ -487,7 +487,9 @@ export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAUL
         users(*),
         like_count: likes(count),
         comment_count: comments(count),
-        bookmark_count: bookmarks(count)
+        bookmark_count: bookmarks(count),
+        stamp_count: canvas_stamps(count),
+        margin_count: canvas_margin_items(count)
     `)
     .eq('privacy', 'public')
     .eq('post_type', 'canvas')
