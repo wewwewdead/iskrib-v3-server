@@ -498,13 +498,25 @@ router.post('/addViews', requireAuth, upload, async(req, res) => {
     })
 
     if(errorAddViews){
+        const isDuplicateView =
+            errorAddViews?.code === '23505' ||
+            (errorAddViews?.message || '').includes('unique_journal_views');
+
+        if(isDuplicateView){
+            return res.status(200).json({message: 'success!', counted: false});
+        }
+
         console.error('error:', errorAddViews.message);
         return res.status(500).json({error: 'error adding views'});
     }
 
-    await supabase.rpc('increment_journal_view', {j_post_id: journalId});
+    const {error: incrementError} = await supabase.rpc('increment_journal_view', {j_post_id: journalId});
+    if(incrementError){
+        console.error('error incrementing journal view:', incrementError.message);
+        return res.status(500).json({error: 'error incrementing views'});
+    }
 
-    return res.status(200).json({message: 'success!'});
+    return res.status(200).json({message: 'success!', counted: true});
 
 })
 

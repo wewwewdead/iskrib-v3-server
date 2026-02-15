@@ -3,7 +3,7 @@ import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
 
 const POST_TYPE_CANVAS = 'canvas';
 const ALLOWED_STAMP_TYPES = new Set(['heart', 'star', 'question', 'fire']);
-const ALLOWED_MARGIN_ITEM_TYPES = new Set(['doodle', 'sticky']);
+const ALLOWED_MARGIN_ITEM_TYPES = new Set(['doodle']);
 const STAMP_SELECT = 'id, journal_id, user_id, snippet_id, word_key, stamp_type, x, y, created_at, users!user_id(id, name, image_url)';
 const MARGIN_SELECT = 'id, journal_id, user_id, item_type, payload, created_at, updated_at, users!user_id(id, name, image_url)';
 const MAX_DOODLE_POINTS = 2400;
@@ -184,6 +184,70 @@ export const addCanvasStampService = async({journalId, userId, snippetId, wordKe
     .single();
 
     if(insertError){
+        const isDuplicateStamp =
+            insertError?.code === '23505' ||
+            (insertError?.message || '').includes('uq_canvas_stamps_user_target_type');
+
+        if(isDuplicateStamp){
+            let existingStampQuery = supabase
+            .from('canvas_stamps')
+            .select(STAMP_SELECT)
+            .eq('journal_id', journalId)
+            .eq('user_id', userId)
+            .eq('snippet_id', snippetId.trim())
+            .eq('stamp_type', normalizedStampType);
+
+            existingStampQuery = normalizedWordKey
+                ? existingStampQuery.eq('word_key', normalizedWordKey)
+                : existingStampQuery.is('word_key', null);
+
+            let {data: existingStamp, error: existingStampError} = await existingStampQuery.maybeSingle();
+            if(existingStampError){
+                console.error('supabase error while fetching duplicate canvas stamp:', existingStampError.message);
+                throw {status: 500, error: 'supabase error while adding canvas stamp'};
+            }
+
+            if(!existingStamp?.id){
+                const {data: fallbackStamps, error: fallbackError} = await supabase
+                .from('canvas_stamps')
+                .select(STAMP_SELECT)
+                .eq('journal_id', journalId)
+                .eq('user_id', userId)
+                .eq('snippet_id', snippetId.trim())
+                .eq('stamp_type', normalizedStampType)
+                .order('created_at', {ascending: false})
+                .limit(1);
+
+                if(fallbackError){
+                    console.error('supabase error while resolving duplicate canvas stamp:', fallbackError.message);
+                    throw {status: 500, error: 'supabase error while adding canvas stamp'};
+                }
+
+                existingStamp = Array.isArray(fallbackStamps) ? fallbackStamps[0] : null;
+            }
+
+            if(!existingStamp?.id){
+                throw {status: 409, error: 'duplicate stamp exists'};
+            }
+
+            const {data: updatedStamp, error: updateError} = await supabase
+            .from('canvas_stamps')
+            .update({
+                x: normalizedX,
+                y: normalizedY
+            })
+            .eq('id', existingStamp.id)
+            .select(STAMP_SELECT)
+            .single();
+
+            if(updateError){
+                console.error('supabase error while updating duplicate canvas stamp:', updateError.message);
+                throw {status: 500, error: 'supabase error while adding canvas stamp'};
+            }
+
+            return normalizeStampPayload(updatedStamp);
+        }
+
         console.error('supabase error while adding canvas stamp:', insertError.message);
         throw {status: 500, error: 'supabase error while adding canvas stamp'};
     }
