@@ -11,6 +11,7 @@ import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaI
 import { getBookmarksController, getCanvasGalleryController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 import { addCanvasMarginController, addCanvasStampController, createCanvasRemixController, deleteCanvasMarginController, deleteCanvasStampController, getCanvasMarginsController, getCanvasStampsController } from "../controller/canvasController.js";
+import { createFreedomWallItemController, deleteFreedomWallItemController, getCurrentFreedomWallWeekController, getFreedomWallItemsController, getFreedomWallStickersController, updateFreedomWallItemController } from "../controller/freedomWallController.js";
 
 const router = express.Router();
 
@@ -163,6 +164,13 @@ router.post('/canvas/remix', requireAuth, createCanvasRemixController);
 router.get('/canvas/margins', optionalAuth, getCanvasMarginsController);
 router.post('/canvas/margins', requireAuth, addCanvasMarginController);
 router.delete('/canvas/margins/:marginId', requireAuth, deleteCanvasMarginController);
+
+router.get('/freedom-wall/current', optionalAuth, getCurrentFreedomWallWeekController);
+router.get('/freedom-wall/stickers', optionalAuth, getFreedomWallStickersController);
+router.get('/freedom-wall/:weekId/items', optionalAuth, getFreedomWallItemsController);
+router.post('/freedom-wall/items', requireAuth, createFreedomWallItemController);
+router.patch('/freedom-wall/items/:itemId', requireAuth, updateFreedomWallItemController);
+router.delete('/freedom-wall/items/:itemId', requireAuth, deleteFreedomWallItemController);
 
 router.post('/addBoorkmark', requireAuth, upload, addBoorkmarkController);
 

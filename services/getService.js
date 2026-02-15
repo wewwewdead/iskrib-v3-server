@@ -5,6 +5,7 @@ const SEARCH_LIMIT_MAX = 20;
 const SEARCH_QUERY_MIN_LENGTH = 2;
 const CANVAS_GALLERY_LIMIT_DEFAULT = 36;
 const CANVAS_GALLERY_LIMIT_MAX = 72;
+const CANVAS_GALLERY_HOT_FETCH_LIMIT = 220;
 const PROFILE_MEDIA_BUCKETS = ['background', 'journal-images', 'avatars'];
 const PROFILE_MEDIA_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.svg'];
 const PROFILE_MEDIA_LIMIT_DEFAULT = 5;
@@ -135,6 +136,49 @@ const parseMediaCursor = (cursor) => {
 
 const encodeMediaCursor = (state) => {
     const payload = JSON.stringify(state);
+    return Buffer.from(payload, 'utf8').toString('base64');
+};
+
+const parseCanvasGalleryCursor = (cursor, expectedSort = 'hottest') => {
+    const fallback = {
+        offset: 0,
+        sort: expectedSort
+    };
+
+    if(!cursor){
+        return fallback;
+    }
+
+    try {
+        const decoded = Buffer.from(cursor, 'base64').toString('utf8');
+        const parsed = JSON.parse(decoded);
+        const parsedSort = typeof parsed?.sort === 'string' && parsed.sort.toLowerCase().trim() === 'newest'
+            ? 'newest'
+            : 'hottest';
+
+        if(parsedSort !== expectedSort){
+            return fallback;
+        }
+
+        const parsedOffset = Number(parsed?.offset);
+        const normalizedOffset = Number.isNaN(parsedOffset) || parsedOffset < 0
+            ? 0
+            : Math.floor(parsedOffset);
+
+        return {
+            offset: normalizedOffset,
+            sort: parsedSort
+        };
+    } catch {
+        return fallback;
+    }
+};
+
+const encodeCanvasGalleryCursor = (offset, sort) => {
+    const payload = JSON.stringify({
+        offset: offset,
+        sort: sort
+    });
     return Buffer.from(payload, 'utf8').toString('base64');
 };
 
@@ -470,7 +514,7 @@ const scoreJournalHotness = (journal) => {
     return (views * 6) + (likes * 3) + (comments * 2) + (bookmarks * 2);
 }
 
-export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAULT, userId, sort = 'hottest') => {
+export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAULT, userId, sort = 'hottest', cursor = null) => {
     if(isNaN(limit) || limit < 1 || limit > CANVAS_GALLERY_LIMIT_MAX){
         throw {status: 400, error: `limit should be an integer between 1 and ${CANVAS_GALLERY_LIMIT_MAX}`};
     }
@@ -478,24 +522,28 @@ export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAUL
     const parsedLimit = parseInt(limit);
     const normalizedSort = typeof sort === 'string' ? sort.toLowerCase().trim() : 'hottest';
     const isNewest = normalizedSort === 'newest';
+    const parsedCursor = parseCanvasGalleryCursor(cursor, isNewest ? 'newest' : 'hottest');
+    const cursorOffset = parsedCursor.offset;
 
-    const fetchLimit = isNewest ? parsedLimit : Math.min(Math.max(parsedLimit * 4, parsedLimit), 220);
-    const {data: journals, error: journalsError} = await supabase
-    .from('journals')
-    .select(`
-        *,
-        users(*),
-        like_count: likes(count),
-        comment_count: comments(count),
-        bookmark_count: bookmarks(count),
-        stamp_count: canvas_stamps(count),
-        margin_count: canvas_margin_items(count)
-    `)
-    .eq('privacy', 'public')
-    .eq('post_type', 'canvas')
-    .order('created_at', {ascending: false})
-    .order('id', {ascending: false})
-    .limit(fetchLimit);
+    const baseQuery = supabase
+        .from('journals')
+        .select(`
+            *,
+            users(*),
+            like_count: likes(count),
+            comment_count: comments(count),
+            bookmark_count: bookmarks(count),
+            stamp_count: canvas_stamps(count),
+            margin_count: canvas_margin_items(count)
+        `)
+        .eq('privacy', 'public')
+        .eq('post_type', 'canvas')
+        .order('created_at', {ascending: false})
+        .order('id', {ascending: false});
+
+    const {data: journals, error: journalsError} = isNewest
+        ? await baseQuery.range(cursorOffset, cursorOffset + parsedLimit)
+        : await baseQuery.limit(CANVAS_GALLERY_HOT_FETCH_LIMIT);
 
     if(journalsError){
         console.error('supabase error while fetching canvas gallery journals:', journalsError.message);
@@ -524,10 +572,21 @@ export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAUL
         });
     }
 
+    const paginatedJournals = isNewest
+        ? normalizedJournals
+        : normalizedJournals.slice(cursorOffset, cursorOffset + parsedLimit + 1);
+    const hasMore = paginatedJournals.length > parsedLimit;
+    const data = hasMore ? paginatedJournals.slice(0, parsedLimit) : paginatedJournals;
+    const nextCursor = hasMore
+        ? encodeCanvasGalleryCursor(cursorOffset + data.length, isNewest ? 'newest' : 'hottest')
+        : null;
+
     return {
-        data: normalizedJournals.slice(0, parsedLimit),
+        data: data,
         sort: isNewest ? 'newest' : 'hottest',
-        totalCandidates: normalizedJournals.length
+        totalCandidates: normalizedJournals.length,
+        hasMore: hasMore,
+        nextCursor: nextCursor
     };
 }
 

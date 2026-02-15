@@ -132,10 +132,10 @@ export const getMonthlyHottestJournalsController = async(req, res) => {
 }
 
 export const getCanvasGalleryController = async(req, res) => {
-    const {limit = 36, userId, sort = 'hottest'} = req.query;
+    const {limit = 36, userId, sort = 'hottest', cursor = null} = req.query;
 
     try {
-        const response = await getCanvasGalleryService(limit, userId, sort);
+        const response = await getCanvasGalleryService(limit, userId, sort, cursor);
         return res.status(200).json(response);
     } catch (error) {
         console.error(error);
