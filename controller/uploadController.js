@@ -77,10 +77,17 @@ export const uploadJournalImageController = async(req, res) =>{
 }
 
 export const uploadJournalContentController = async(req, res) =>{
-    const {content, title} = req.body;
+    const {
+        content,
+        title,
+        post_type: postType,
+        canvas_doc: canvasDoc,
+        remix_source_journal_id: remixSourceJournalId,
+        is_remix: isRemix
+    } = req.body;
     const userId = req.userId;
     try {
-        await uploadJournalContentService(content, title, userId);
+        await uploadJournalContentService(content, title, userId, postType, canvasDoc, remixSourceJournalId, isRemix);
         return res.status(200).json({message: 'Content saved successfully!'});
     } catch (error) {
         console.error('failed to upload content:', error);
@@ -89,11 +96,11 @@ export const uploadJournalContentController = async(req, res) =>{
 }
 
 export const updateJournalController = async(req, res) =>{
-    const {content, title, journalId} = req.body;
+    const {content, title, journalId, post_type: postType, canvas_doc: canvasDoc} = req.body;
     const userId = req.userId;
 
     try {
-        await updateJournalService(content, title, journalId, userId);
+        await updateJournalService(content, title, journalId, userId, postType, canvasDoc);
         return res.status(200).json({message: 'journal was updated successfuly'});
     } catch (error) {
         console.error(error);

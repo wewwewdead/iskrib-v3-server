@@ -3,6 +3,8 @@ import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
 
 const SEARCH_LIMIT_MAX = 20;
 const SEARCH_QUERY_MIN_LENGTH = 2;
+const CANVAS_GALLERY_LIMIT_DEFAULT = 36;
+const CANVAS_GALLERY_LIMIT_MAX = 72;
 const PROFILE_MEDIA_BUCKETS = ['background', 'journal-images', 'avatars'];
 const PROFILE_MEDIA_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.svg'];
 const PROFILE_MEDIA_LIMIT_DEFAULT = 5;
@@ -457,6 +459,73 @@ export const getMonthlyHottestJournalsService = async(limit, userId) => {
             timezone: 'UTC'
         },
         totalCandidates: scored.length
+    };
+}
+
+const scoreJournalHotness = (journal) => {
+    const likes = journal?.like_count?.[0]?.count || 0;
+    const comments = journal?.comment_count?.[0]?.count || 0;
+    const bookmarks = journal?.bookmark_count?.[0]?.count || 0;
+    const views = journal?.views || 0;
+    return (views * 6) + (likes * 3) + (comments * 2) + (bookmarks * 2);
+}
+
+export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAULT, userId, sort = 'hottest') => {
+    if(isNaN(limit) || limit < 1 || limit > CANVAS_GALLERY_LIMIT_MAX){
+        throw {status: 400, error: `limit should be an integer between 1 and ${CANVAS_GALLERY_LIMIT_MAX}`};
+    }
+
+    const parsedLimit = parseInt(limit);
+    const normalizedSort = typeof sort === 'string' ? sort.toLowerCase().trim() : 'hottest';
+    const isNewest = normalizedSort === 'newest';
+
+    const fetchLimit = isNewest ? parsedLimit : Math.min(Math.max(parsedLimit * 4, parsedLimit), 220);
+    const {data: journals, error: journalsError} = await supabase
+    .from('journals')
+    .select(`
+        *,
+        users(*),
+        like_count: likes(count),
+        comment_count: comments(count),
+        bookmark_count: bookmarks(count)
+    `)
+    .eq('privacy', 'public')
+    .eq('post_type', 'canvas')
+    .order('created_at', {ascending: false})
+    .order('id', {ascending: false})
+    .limit(fetchLimit);
+
+    if(journalsError){
+        console.error('supabase error while fetching canvas gallery journals:', journalsError.message);
+        throw {status: 500, error: 'supabase error while fetching canvas gallery journals'};
+    }
+
+    const enrichedJournals = await attachUserInteractionFlags(journals || [], userId);
+    const normalizedJournals = enrichedJournals.map((journal) => ({
+        ...journal,
+        hot_score: scoreJournalHotness(journal)
+    }));
+
+    if(!isNewest){
+        normalizedJournals.sort((a, b) => {
+            const scoreDiff = (b.hot_score || 0) - (a.hot_score || 0);
+            if(scoreDiff !== 0){
+                return scoreDiff;
+            }
+
+            const dateDiff = new Date(b?.created_at || 0) - new Date(a?.created_at || 0);
+            if(dateDiff !== 0){
+                return dateDiff;
+            }
+
+            return (b?.id || 0) - (a?.id || 0);
+        });
+    }
+
+    return {
+        data: normalizedJournals.slice(0, parsedLimit),
+        sort: isNewest ? 'newest' : 'hottest',
+        totalCandidates: normalizedJournals.length
     };
 }
 

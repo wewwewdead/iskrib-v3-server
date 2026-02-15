@@ -1,4 +1,4 @@
-import { getBookmarksService, getCommentsService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService } from "../services/getService.js";
+import { getBookmarksService, getCanvasGalleryService, getCommentsService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -128,6 +128,18 @@ export const getMonthlyHottestJournalsController = async(req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch monthly hottest journals'});
+    }
+}
+
+export const getCanvasGalleryController = async(req, res) => {
+    const {limit = 36, userId, sort = 'hottest'} = req.query;
+
+    try {
+        const response = await getCanvasGalleryService(limit, userId, sort);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch canvas gallery'});
     }
 }
 

@@ -8,8 +8,9 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
+import { getBookmarksController, getCanvasGalleryController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
+import { addCanvasMarginController, addCanvasStampController, createCanvasRemixController, deleteCanvasMarginController, deleteCanvasStampController, getCanvasMarginsController, getCanvasStampsController } from "../controller/canvasController.js";
 
 const router = express.Router();
 
@@ -137,6 +138,7 @@ router.post('/update-journal', requireAuth, upload, updateJournalController);
 
 router.get('/journals', getJournalsController);
 router.get('/journals/hottest-monthly', getMonthlyHottestJournalsController);
+router.get('/journals/canvas/gallery', getCanvasGalleryController);
 router.get('/journals/search', searchJournalsController);
 router.get('/journal/:journalId', getJournalByIdController);
 
@@ -153,6 +155,14 @@ router.post('/like', requireAuth, likeController);
 router.post('/addComment', requireAuth, upload, addCommentController);
 
 router.get('/getComments', getCommentsController);
+
+router.post('/canvas/stamps', requireAuth, addCanvasStampController);
+router.get('/canvas/stamps', optionalAuth, getCanvasStampsController);
+router.delete('/canvas/stamps/:stampId', requireAuth, deleteCanvasStampController);
+router.post('/canvas/remix', requireAuth, createCanvasRemixController);
+router.get('/canvas/margins', optionalAuth, getCanvasMarginsController);
+router.post('/canvas/margins', requireAuth, addCanvasMarginController);
+router.delete('/canvas/margins/:marginId', requireAuth, deleteCanvasMarginController);
 
 router.post('/addBoorkmark', requireAuth, upload, addBoorkmarkController);
 
