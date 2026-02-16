@@ -1,8 +1,11 @@
 import supabase from "./supabase.js";
 
 const FREEDOM_WALL_ITEM_TYPES = ["doodle", "sticker", "stamp", "note"];
+const REPORTABLE_ITEM_TYPES = ["doodle"];
 const DEFAULT_ITEMS_LIMIT = 200;
 const MAX_ITEMS_LIMIT = 400;
+const DEFAULT_WEEKS_LIMIT = 8;
+const MAX_WEEKS_LIMIT = 52;
 const NOTE_FONT_STYLES = ["normal", "bold", "italic"];
 const NOTE_FONT_FAMILIES = [
     "Georgia",
@@ -18,6 +21,14 @@ const parseLimit = (limit) => {
     const parsedLimit = Number(limit ?? DEFAULT_ITEMS_LIMIT);
     if(Number.isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > MAX_ITEMS_LIMIT){
         throw {status: 400, error: `limit should be an integer between 1 and ${MAX_ITEMS_LIMIT}`};
+    }
+    return Math.floor(parsedLimit);
+};
+
+const parseWeeksLimit = (limit) => {
+    const parsedLimit = Number(limit ?? DEFAULT_WEEKS_LIMIT);
+    if(Number.isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > MAX_WEEKS_LIMIT){
+        throw {status: 400, error: `limit should be an integer between 1 and ${MAX_WEEKS_LIMIT}`};
     }
     return Math.floor(parsedLimit);
 };
@@ -268,6 +279,23 @@ export const getCurrentFreedomWallWeekService = async() => {
     return {week: activeWeek};
 };
 
+export const getFreedomWallWeeksService = async(limit) => {
+    const parsedLimit = parseWeeksLimit(limit);
+
+    const {data: weeks, error: weeksError} = await supabase
+        .from("freedom_wall_weeks")
+        .select("id, week_start, week_end, status, created_at")
+        .order("week_start", {ascending: false})
+        .limit(parsedLimit);
+
+    if(weeksError){
+        console.error("supabase error while reading freedom wall weeks:", weeksError.message);
+        throw {status: 500, error: "failed to fetch freedom wall weeks"};
+    }
+
+    return {weeks: weeks || []};
+};
+
 export const getFreedomWallItemsService = async(weekId, limit, cursor, types) => {
     if(!weekId){
         throw {status: 400, error: "weekId is required"};
@@ -460,6 +488,85 @@ export const deleteFreedomWallItemService = async({itemId, userId}) => {
     }
 
     return {message: "deleted", itemId: itemId};
+};
+
+export const reportFreedomWallItemService = async({itemId, reporterUserId}) => {
+    if(!reporterUserId){
+        throw {status: 401, error: "not authorized"};
+    }
+
+    if(!itemId){
+        throw {status: 400, error: "itemId is required"};
+    }
+
+    const {data: existingItem, error: existingItemError} = await supabase
+        .from("freedom_wall_items")
+        .select("id, week_id, user_id, item_type")
+        .eq("id", itemId)
+        .is("deleted_at", null)
+        .maybeSingle();
+
+    if(existingItemError){
+        console.error("supabase error while reading freedom wall item:", existingItemError.message);
+        throw {status: 500, error: "failed to read freedom wall item"};
+    }
+
+    if(!existingItem?.id){
+        throw {status: 404, error: "freedom wall item not found"};
+    }
+
+    if(!REPORTABLE_ITEM_TYPES.includes(existingItem.item_type)){
+        throw {status: 400, error: "only doodle items can be reported"};
+    }
+
+    await assertActiveWeek(existingItem.week_id);
+
+    const {error: deleteError} = await supabase
+        .from("freedom_wall_items")
+        .delete()
+        .eq("id", itemId);
+
+    if(deleteError){
+        console.error("supabase error while deleting reported freedom wall item:", deleteError.message);
+        throw {status: 500, error: "failed to delete reported freedom wall item"};
+    }
+
+    return {
+        message: "reported_and_removed",
+        itemId: existingItem.id
+    };
+};
+
+export const clearMyFreedomWallDoodlesService = async({weekId, userId}) => {
+    if(!userId){
+        throw {status: 401, error: "not authorized"};
+    }
+
+    if(!weekId){
+        throw {status: 400, error: "weekId is required"};
+    }
+
+    await assertActiveWeek(weekId);
+
+    const {data: deletedRows, error: clearError} = await supabase
+        .from("freedom_wall_items")
+        .delete()
+        .eq("week_id", weekId)
+        .eq("user_id", userId)
+        .eq("item_type", "doodle")
+        .is("deleted_at", null)
+        .select("id");
+
+    if(clearError){
+        console.error("supabase error while clearing user freedom wall doodles:", clearError.message);
+        throw {status: 500, error: "failed to clear freedom wall doodles"};
+    }
+
+    return {
+        message: "cleared",
+        weekId: weekId,
+        deletedCount: deletedRows?.length || 0
+    };
 };
 
 export const getFreedomWallStickersService = async() => {

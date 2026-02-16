@@ -1,9 +1,12 @@
 import {
+    clearMyFreedomWallDoodlesService,
     createFreedomWallItemService,
     deleteFreedomWallItemService,
     getCurrentFreedomWallWeekService,
     getFreedomWallItemsService,
+    getFreedomWallWeeksService,
     getFreedomWallStickersService,
+    reportFreedomWallItemService,
     updateFreedomWallItemService
 } from "../services/freedomWallService.js";
 
@@ -14,6 +17,18 @@ export const getCurrentFreedomWallWeekController = async(_req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(error?.status || 500).json({error: error?.error || "failed to fetch active freedom wall week"});
+    }
+};
+
+export const getFreedomWallWeeksController = async(req, res) => {
+    const {limit} = req.query || {};
+
+    try {
+        const response = await getFreedomWallWeeksService(limit);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || "failed to fetch freedom wall weeks"});
     }
 };
 
@@ -91,5 +106,37 @@ export const getFreedomWallStickersController = async(_req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(error?.status || 500).json({error: error?.error || "failed to fetch freedom wall stickers"});
+    }
+};
+
+export const reportFreedomWallItemController = async(req, res) => {
+    const {itemId} = req.params;
+    const reporterUserId = req.userId;
+
+    try {
+        const response = await reportFreedomWallItemService({
+            itemId: itemId,
+            reporterUserId: reporterUserId
+        });
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || "failed to report freedom wall item"});
+    }
+};
+
+export const clearMyFreedomWallDoodlesController = async(req, res) => {
+    const {weekId} = req.params;
+    const userId = req.userId;
+
+    try {
+        const response = await clearMyFreedomWallDoodlesService({
+            weekId: weekId,
+            userId: userId
+        });
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || "failed to clear freedom wall doodles"});
     }
 };
