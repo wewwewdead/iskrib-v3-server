@@ -8,10 +8,11 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCanvasGalleryController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
+import { getBookmarksController, getCanvasGalleryController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUniversePostsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
 import { addCanvasMarginController, addCanvasStampController, createCanvasRemixController, deleteCanvasMarginController, deleteCanvasStampController, getCanvasMarginsController, getCanvasStampsController } from "../controller/canvasController.js";
 import { clearMyFreedomWallDoodlesController, createFreedomWallItemController, deleteFreedomWallItemController, getCurrentFreedomWallWeekController, getFreedomWallItemsController, getFreedomWallStickersController, getFreedomWallWeeksController, reportFreedomWallItemController, updateFreedomWallItemController } from "../controller/freedomWallController.js";
+import { requestConstellationController, respondConstellationController, getViewportConstellationsController, deleteConstellationController } from "../controller/constellationController.js";
 
 const router = express.Router();
 
@@ -142,6 +143,7 @@ router.get('/journals/hottest-monthly', getMonthlyHottestJournalsController);
 router.get('/journals/canvas/gallery', getCanvasGalleryController);
 router.get('/journals/search', searchJournalsController);
 router.get('/journal/:journalId', getJournalByIdController);
+router.get('/universe/posts', getUniversePostsController);
 
 router.get('/userJournals', requireAuth, getUserJournalsController);
 router.get('/profileMedia', requireAuth, getProfileMediaController);
@@ -266,7 +268,9 @@ router.get('/getNotifications', requireAuth, async(req, res) =>{
     .select(
         `*,
         journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count), users(name, id, image_url, badge)),
-        users!sender_id(name, user_email, image_url, id, badge)
+        users!sender_id(name, user_email, image_url, id, badge),
+        constellation_id,
+        constellations!constellation_id(status, star_id_a, star_id_b)
         `
     )
     .eq('receiver_id', userId)
@@ -1097,5 +1101,9 @@ router.post('/addOpinionReply/:parent_id/:user_id/:receiver_id', requireAuth, up
 
 router.get('/getOpinionReply/:parentId', getReplyOpinionsController);
 
+router.post('/constellation/request', requireAuth, requestConstellationController);
+router.post('/constellation/respond', requireAuth, respondConstellationController);
+router.get('/constellation/viewport', getViewportConstellationsController);
+router.delete('/constellation/:id', requireAuth, deleteConstellationController);
 
 export default router;

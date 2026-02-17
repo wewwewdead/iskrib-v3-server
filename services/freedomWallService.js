@@ -87,13 +87,25 @@ const sanitizeDoodlePayload = (payload) => {
         : points.slice(0, -1);
 
     const normalizedSize = clamp(normalizeNumber(payload?.size, 2.8), 1, 24);
-    return {
+    const result = {
         points: sanitizedPoints,
         color: parseColor(payload?.color, "#5f92ff"),
         size: normalizedSize,
         // Backward compatibility for older DB check constraints that still expect strokeWidth.
         strokeWidth: normalizedSize
     };
+
+    if(Array.isArray(payload?.widths)){
+        const sanitizedWidths = payload.widths
+            .map((w) => Number(w))
+            .filter((w) => !Number.isNaN(w))
+            .map((w) => clamp(w, 0.1, 3.0));
+        if(sanitizedWidths.length > 0){
+            result.widths = sanitizedWidths;
+        }
+    }
+
+    return result;
 };
 
 const sanitizeStickerPayload = (payload) => {

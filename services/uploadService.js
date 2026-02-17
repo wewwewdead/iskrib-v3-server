@@ -3,9 +3,34 @@ import { imageUploader } from "../routes/routes.js";
 import supabase from "./supabase.js";
 import ParseContent from "../utils/parseData.js";
 import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
+import { incrementalSettleForUser } from "./galaxySettleService.js";
 
 const POST_TYPE_TEXT = 'text';
 const POST_TYPE_CANVAS = 'canvas';
+
+const simpleHash = (str) => {
+    let h = 0;
+    for(let i = 0; i < str.length; i++){
+        h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+    }
+    return h;
+};
+
+const userHomeCoords = (userId) => {
+    const mid = Math.floor(userId.length / 2);
+    const xHash = Math.abs(simpleHash(userId.slice(0, mid)));
+    const yHash = Math.abs(simpleHash(userId.slice(mid)));
+    const x = (xHash % 50001) / 50000 * 50000 - 25000;
+    const y = (yHash % 50001) / 50000 * 50000 - 25000;
+    return {x, y};
+};
+
+const spiralLayout = (index) => {
+    if(index === 0) return {dx: 0, dy: 0};
+    const angle = index * 0.8;
+    const radius = 30 * Math.sqrt(index);
+    return {dx: radius * Math.cos(angle), dy: radius * Math.sin(angle)};
+};
 
 const normalizePostType = (postType) => {
     if(typeof postType !== 'string'){
@@ -280,6 +305,19 @@ export const uploadJournalContentService = async(
         insertPayload.remix_source_journal_id = remixSourceJournalId.trim();
     }
 
+    try {
+        const {count: postCount} = await supabase
+            .from('journals')
+            .select('id', {count: 'exact', head: true})
+            .eq('user_id', userId);
+        const home = userHomeCoords(userId);
+        const offset = spiralLayout(postCount || 0);
+        insertPayload.universe_x = home.x + offset.dx;
+        insertPayload.universe_y = home.y + offset.dy;
+    } catch (coordErr) {
+        console.error('non-fatal: failed to compute universe coords:', coordErr?.message || coordErr);
+    }
+
     let {error} = await supabase
     .from('journals')
     .insert(insertPayload);
@@ -303,6 +341,16 @@ export const uploadJournalContentService = async(
         console.error('supabase error while uploading content:',error.message);
         throw {status: 500, error: 'supabase error while uploading content'};
     }
+
+    // Non-fatal: incrementally update galaxy positions for this user
+    try {
+        incrementalSettleForUser(userId).catch(err =>
+            console.error('non-fatal: incremental settle failed:', err?.message || err)
+        );
+    } catch (settleErr) {
+        console.error('non-fatal: incremental settle failed:', settleErr?.message || settleErr);
+    }
+
     return true;
 }
 
