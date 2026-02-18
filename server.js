@@ -63,10 +63,11 @@ app.get('/share/post/:journalId', async (req, res) => {
             return res.redirect(302, makePostUrl(''));
         }
 
-        // Extract plain text and first image from Lexical JSON content
+        // Extract plain text and first image from content
         let description = '';
-        let ogImage = `${SITE_URL}/temporary-logo.svg`;
+        let ogImage = null;
 
+        // Extract from Lexical JSON (text posts)
         const extractFromLexical = (contentJson) => {
             try {
                 const parsed = typeof contentJson === 'string' ? JSON.parse(contentJson) : contentJson;
@@ -99,12 +100,36 @@ app.get('/share/post/:journalId', async (req, res) => {
             }
         };
 
+        // Extract first image from canvas_doc (canvas posts)
+        const extractCanvasImage = (canvasDocRaw) => {
+            try {
+                const doc = typeof canvasDocRaw === 'string' ? JSON.parse(canvasDocRaw) : canvasDocRaw;
+                if (Array.isArray(doc?.images)) {
+                    const first = doc.images.find((img) => img && typeof img.src === 'string' && img.src);
+                    if (first) return first.src;
+                }
+                return null;
+            } catch {
+                return null;
+            }
+        };
+
         if (journal.content) {
             const extracted = extractFromLexical(journal.content);
             description = extracted.text;
             if (extracted.image) {
                 ogImage = extracted.image;
             }
+        }
+
+        // For canvas posts, also check canvas_doc for images
+        if (!ogImage && journal.canvas_doc) {
+            ogImage = extractCanvasImage(journal.canvas_doc);
+        }
+
+        // Fallback: use the author's avatar, then the site default PNG
+        if (!ogImage) {
+            ogImage = journal.users?.image_url || `${SITE_URL}/assets/no-image.png`;
         }
 
         const title = journal.title || 'Untitled Post';
