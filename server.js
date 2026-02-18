@@ -44,7 +44,13 @@ app.use(express.urlencoded({extended: true, limit: "2mb", parameterLimit: 1000})
 app.get('/share/post/:journalId', async (req, res) => {
     const { journalId } = req.params;
     const SITE_URL = 'https://iskrib.com';
-    const clientPostUrl = `${SITE_URL}/#/home/post/${journalId}`;
+
+    const makePostUrl = (title) => {
+        const slug = title
+            ? title.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+            : '';
+        return `${SITE_URL}/home/post/${journalId}${slug ? '/' + slug : ''}`;
+    };
 
     try {
         const { data: journal, error } = await supabase
@@ -54,7 +60,7 @@ app.get('/share/post/:journalId', async (req, res) => {
             .single();
 
         if (error || !journal) {
-            return res.redirect(302, clientPostUrl);
+            return res.redirect(302, makePostUrl(''));
         }
 
         // Extract plain text and first image from Lexical JSON content
@@ -107,6 +113,8 @@ app.get('/share/post/:journalId', async (req, res) => {
             description = `Read "${title}" by ${authorName} on Iskryb`;
         }
 
+        const clientPostUrl = makePostUrl(journal.title);
+
         const escHtml = (str) => String(str)
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
@@ -123,7 +131,7 @@ app.get('/share/post/:journalId', async (req, res) => {
 <meta property="og:title" content="${escHtml(title)}">
 <meta property="og:description" content="${escHtml(description)}">
 <meta property="og:image" content="${escHtml(ogImage)}">
-<meta property="og:url" content="${escHtml(req.protocol + '://' + req.get('host') + req.originalUrl)}">
+<meta property="og:url" content="${escHtml(clientPostUrl)}">
 <meta property="og:site_name" content="Iskryb">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escHtml(title)}">
@@ -141,7 +149,7 @@ app.get('/share/post/:journalId', async (req, res) => {
         res.send(html);
     } catch (err) {
         console.error('share route error:', err?.message || err);
-        res.redirect(302, clientPostUrl);
+        res.redirect(302, makePostUrl(''));
     }
 });
 
