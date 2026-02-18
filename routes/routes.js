@@ -10,7 +10,7 @@ import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
 import { getBookmarksController, getCanvasGalleryController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUniversePostsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
-import { addCanvasMarginController, addCanvasStampController, createCanvasRemixController, deleteCanvasMarginController, deleteCanvasStampController, getCanvasMarginsController, getCanvasStampsController } from "../controller/canvasController.js";
+import { createCanvasRemixController } from "../controller/canvasController.js";
 import { clearMyFreedomWallDoodlesController, createFreedomWallItemController, deleteFreedomWallItemController, getCurrentFreedomWallWeekController, getFreedomWallItemsController, getFreedomWallStickersController, getFreedomWallWeeksController, reportFreedomWallItemController, updateFreedomWallItemController } from "../controller/freedomWallController.js";
 import { requestConstellationController, respondConstellationController, getViewportConstellationsController, deleteConstellationController } from "../controller/constellationController.js";
 
@@ -159,13 +159,7 @@ router.post('/addComment', requireAuth, upload, addCommentController);
 
 router.get('/getComments', getCommentsController);
 
-router.post('/canvas/stamps', requireAuth, addCanvasStampController);
-router.get('/canvas/stamps', optionalAuth, getCanvasStampsController);
-router.delete('/canvas/stamps/:stampId', requireAuth, deleteCanvasStampController);
 router.post('/canvas/remix', requireAuth, createCanvasRemixController);
-router.get('/canvas/margins', optionalAuth, getCanvasMarginsController);
-router.post('/canvas/margins', requireAuth, addCanvasMarginController);
-router.delete('/canvas/margins/:marginId', requireAuth, deleteCanvasMarginController);
 
 router.get('/freedom-wall/current', optionalAuth, getCurrentFreedomWallWeekController);
 router.get('/freedom-wall/weeks', optionalAuth, getFreedomWallWeeksController);
