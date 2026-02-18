@@ -32,6 +32,40 @@ const PROFILE_MEDIA_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bm
 const PROFILE_MEDIA_LIMIT_DEFAULT = 5;
 const PROFILE_MEDIA_LIMIT_MAX = 20;
 
+const attachRepostSources = async (journals) => {
+    const items = Array.isArray(journals) ? journals : [journals];
+    const sourceIds = [...new Set(
+        items
+            .filter(j => j.is_repost === true && j.repost_source_journal_id != null)
+            .map(j => j.repost_source_journal_id)
+    )];
+
+    if (sourceIds.length === 0) {
+        items.forEach(j => { j.repost_source = null; });
+        return journals;
+    }
+
+    const { data: sources, error } = await supabase
+        .from('journals')
+        .select('id, title, content, post_type, canvas_doc, created_at, users(id, name, image_url, badge)')
+        .in('id', sourceIds);
+
+    if (error) {
+        console.error('supabase error fetching repost sources:', error.message);
+        items.forEach(j => { j.repost_source = null; });
+        return journals;
+    }
+
+    const sourceMap = new Map(sources.map(s => [s.id, s]));
+    items.forEach(j => {
+        j.repost_source = j.repost_source_journal_id
+            ? (sourceMap.get(j.repost_source_journal_id) || null)
+            : null;
+    });
+
+    return journals;
+};
+
 const parseFiniteNumber = (value, fieldName) => {
     const parsed = Number(value);
     if(!Number.isFinite(parsed)){
@@ -673,6 +707,8 @@ export const getJournalsService = async(limit, userId, before) => {
         userHasBookmarkedSet = new Set(userBookmarksResult?.map((j) => j.journal_id)|| []);
     }
 
+    await attachRepostSources(data);
+
     const formattedData = data?.map((journal) => ({
         ...journal,
         has_liked: userHasLikedSet.has(journal.id),
@@ -866,6 +902,8 @@ export const getJournalByIdService = async (journalId, userId) => {
         return null;
     }
 
+    await attachRepostSources(journal);
+
     let hasLiked = false;
     let hasBookmarked = false;
 
@@ -918,7 +956,7 @@ export const getUserJournalsService = async(limit, before, userId) =>{
     let query = supabase
     .from('journals')
     .select(`
-        *, 
+        *,
         users(name, image_url, user_email, id, badge),
         like_count: likes(count),
         comment_count: comments(count),
@@ -946,6 +984,8 @@ export const getUserJournalsService = async(limit, before, userId) =>{
         const data = {data: [], hasMore: false};
         return data;
     }
+
+    await attachRepostSources(journals);
 
     let userLikesPromise;
     let userBookmarksPromise;
@@ -1008,7 +1048,7 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
     let query = supabase
     .from('journals')
     .select(`
-        *, 
+        *,
         users(name, image_url, user_email, id, badge),
         like_count: likes(count),
         comment_count: comments(count),
@@ -1037,6 +1077,8 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
         return {data: [], hasMore: false}
     }
 
+    await attachRepostSources(journals);
+
     let userLikesPromise;
     let userBookmarksPromise;
 
@@ -1046,7 +1088,7 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
         .select('journal_id')
         .in('journal_id', journalIds)
         .eq('user_id', loggedInUserId)
-        
+
         userBookmarksPromise = supabase
         .from('bookmarks')
         .select('journal_id')

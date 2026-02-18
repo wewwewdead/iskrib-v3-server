@@ -235,6 +235,132 @@ export const uploadOpinionReplyService = async(parent_id, opinion, user_id) =>{
     return {message: 'success'};
 }
 
+export const repostService = async(sourceJournalId, caption, userId) => {
+    if(!sourceJournalId || !userId){
+        throw {status: 400, error: 'sourceJournalId or userId is undefined'};
+    }
+
+    if(caption && caption.length > 280){
+        throw {status: 400, error: 'caption must be 280 characters or less'};
+    }
+
+    // Fetch source journal
+    const {data: sourceJournal, error: errorSourceJournal} = await supabase
+        .from('journals')
+        .select('id, title, user_id, privacy, is_repost, repost_source_journal_id')
+        .eq('id', sourceJournalId)
+        .maybeSingle();
+
+    if(errorSourceJournal){
+        console.error('supabase error while fetching source journal:', errorSourceJournal.message);
+        throw {status: 500, error: 'supabase error while fetching source journal'};
+    }
+
+    if(!sourceJournal){
+        throw {status: 404, error: 'source journal not found'};
+    }
+
+    if(sourceJournal.privacy !== 'public'){
+        throw {status: 403, error: 'cannot repost a private post'};
+    }
+
+    if(sourceJournal.user_id === userId){
+        throw {status: 403, error: 'cannot repost your own post'};
+    }
+
+    // If reposting a repost, follow chain to the ultimate original
+    let ultimateSourceId = sourceJournalId;
+    let ultimateSourceUserId = sourceJournal.user_id;
+    let ultimateSourceTitle = sourceJournal.title;
+
+    if(sourceJournal.is_repost && sourceJournal.repost_source_journal_id){
+        const {data: originalJournal, error: errorOriginal} = await supabase
+            .from('journals')
+            .select('id, title, user_id, privacy')
+            .eq('id', sourceJournal.repost_source_journal_id)
+            .maybeSingle();
+
+        if(errorOriginal){
+            console.error('supabase error fetching original:', errorOriginal.message);
+            throw {status: 500, error: 'supabase error while fetching original post'};
+        }
+        if(!originalJournal){
+            throw {status: 404, error: 'original post no longer exists'};
+        }
+        if(originalJournal.privacy !== 'public'){
+            throw {status: 403, error: 'cannot repost a private post'};
+        }
+        if(originalJournal.user_id === userId){
+            throw {status: 403, error: 'cannot repost your own post'};
+        }
+
+        ultimateSourceId = originalJournal.id;
+        ultimateSourceUserId = originalJournal.user_id;
+        ultimateSourceTitle = originalJournal.title;
+    }
+
+    // Check for duplicate repost
+    const {data: existingRepost, error: errorExisting} = await supabase
+        .from('journals')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('repost_source_journal_id', ultimateSourceId)
+        .eq('is_repost', true)
+        .maybeSingle();
+
+    if(errorExisting){
+        console.error('supabase error while checking existing repost:', errorExisting.message);
+        throw {status: 500, error: 'supabase error while checking existing repost'};
+    }
+
+    if(existingRepost){
+        throw {status: 409, error: 'you have already reposted this post'};
+    }
+
+    const repostTitle = `Repost: ${ultimateSourceTitle || 'Untitled'}`;
+
+    const {data: insertedRepost, error: errorInsertRepost} = await supabase
+        .from('journals')
+        .insert({
+            user_id: userId,
+            is_repost: true,
+            repost_source_journal_id: ultimateSourceId,
+            repost_caption: caption || null,
+            post_type: 'text',
+            content: null,
+            title: repostTitle.length > 255 ? repostTitle.substring(0, 255) : repostTitle,
+            privacy: 'public'
+        })
+        .select('id')
+        .single();
+
+    if(errorInsertRepost){
+        console.error('supabase error while inserting repost:', errorInsertRepost.message);
+        throw {status: 500, error: 'supabase error while inserting repost'};
+    }
+
+    // Notify the original author (skip if self)
+    const isOwnContent = userId === ultimateSourceUserId;
+    if(!isOwnContent){
+        const {error: errorNotif} = await supabase
+            .from('notifications')
+            .insert({
+                sender_id: userId,
+                receiver_id: ultimateSourceUserId,
+                journal_id: ultimateSourceId,
+                repost_journal_id: insertedRepost.id,
+                type: 'repost',
+                read: false
+            });
+
+        if(errorNotif){
+            console.error('supabase error while inserting repost notification:', errorNotif.message);
+        }
+    }
+
+    return {message: 'repost created', repostId: insertedRepost.id, sourceJournalId: ultimateSourceId};
+}
+
 export const addFollowsService = async(followerId, followingId) => {
     if(!followerId || !followingId){
         console.error('followerId or followingId is undefined');

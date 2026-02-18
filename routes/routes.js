@@ -9,7 +9,7 @@ import { addReplyOpinionController, updateJournalController, updateUserDataContr
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
 import { getBookmarksController, getCanvasGalleryController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUniversePostsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
-import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController } from "../controller/interactController.js";
+import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
 import { createCanvasRemixController } from "../controller/canvasController.js";
 import { clearMyFreedomWallDoodlesController, createFreedomWallItemController, deleteFreedomWallItemController, getCurrentFreedomWallWeekController, getFreedomWallItemsController, getFreedomWallStickersController, getFreedomWallWeeksController, reportFreedomWallItemController, updateFreedomWallItemController } from "../controller/freedomWallController.js";
 import { requestConstellationController, respondConstellationController, getViewportConstellationsController, deleteConstellationController } from "../controller/constellationController.js";
@@ -154,6 +154,8 @@ router.get('/visitedUserJournals', getVisitedUserJournalsController);
 router.delete('/deleteJournal/:journalId', requireAuth, deleteJournalContent);
 
 router.post('/like', requireAuth, likeController);
+
+router.post('/repost', requireAuth, repostController);
 
 router.post('/addComment', requireAuth, upload, addCommentController);
 

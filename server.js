@@ -3,6 +3,7 @@ import cors from 'cors';
 import compression from "compression";
 import helmet from "helmet";
 import router from "./routes/routes.js";
+import supabase from "./services/supabase.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -38,6 +39,116 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({extended: true, limit: "2mb", parameterLimit: 1000}));
+
+// ── Share route: serves OG meta tags for social media previews ──
+app.get('/share/post/:journalId', async (req, res) => {
+    const { journalId } = req.params;
+    const SITE_URL = 'https://iskrib.com';
+    const clientPostUrl = `${SITE_URL}/#/home/post/${journalId}`;
+
+    try {
+        const { data: journal, error } = await supabase
+            .from('journals')
+            .select('id, title, content, post_type, canvas_doc, created_at, users(name, image_url)')
+            .eq('id', journalId)
+            .single();
+
+        if (error || !journal) {
+            return res.redirect(302, clientPostUrl);
+        }
+
+        // Extract plain text and first image from Lexical JSON content
+        let description = '';
+        let ogImage = `${SITE_URL}/temporary-logo.svg`;
+
+        const extractFromLexical = (contentJson) => {
+            try {
+                const parsed = typeof contentJson === 'string' ? JSON.parse(contentJson) : contentJson;
+                const texts = [];
+                let firstImage = null;
+
+                const walk = (node) => {
+                    if (!node) return;
+                    if (node.type === 'text' && node.text) {
+                        texts.push(node.text);
+                    }
+                    if (node.type === 'image' && node.src && !firstImage) {
+                        firstImage = node.src;
+                    }
+                    if (Array.isArray(node.children)) {
+                        node.children.forEach(walk);
+                    }
+                };
+
+                if (parsed?.root) {
+                    walk(parsed.root);
+                }
+
+                return {
+                    text: texts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 160),
+                    image: firstImage
+                };
+            } catch {
+                return { text: '', image: null };
+            }
+        };
+
+        if (journal.content) {
+            const extracted = extractFromLexical(journal.content);
+            description = extracted.text;
+            if (extracted.image) {
+                ogImage = extracted.image;
+            }
+        }
+
+        const title = journal.title || 'Untitled Post';
+        const authorName = journal.users?.name || 'Someone';
+        if (!description) {
+            description = `Read "${title}" by ${authorName} on Iskryb`;
+        }
+
+        const escHtml = (str) => String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${escHtml(title)} | Iskryb</title>
+<meta name="description" content="${escHtml(description)}">
+<meta property="og:type" content="article">
+<meta property="og:title" content="${escHtml(title)}">
+<meta property="og:description" content="${escHtml(description)}">
+<meta property="og:image" content="${escHtml(ogImage)}">
+<meta property="og:url" content="${escHtml(req.protocol + '://' + req.get('host') + req.originalUrl)}">
+<meta property="og:site_name" content="Iskryb">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escHtml(title)}">
+<meta name="twitter:description" content="${escHtml(description)}">
+<meta name="twitter:image" content="${escHtml(ogImage)}">
+<meta http-equiv="refresh" content="0; url=${escHtml(clientPostUrl)}">
+</head>
+<body>
+<p>${escHtml(title)} — Redirecting to Iskryb...</p>
+<a href="${escHtml(clientPostUrl)}">Click here if not redirected</a>
+</body>
+</html>`;
+
+        res.set('Content-Type', 'text/html; charset=utf-8');
+        res.send(html);
+    } catch (err) {
+        console.error('share route error:', err?.message || err);
+        res.redirect(302, clientPostUrl);
+    }
+});
+
+// Also handle /api/share/post/:journalId so getShareUrl works in both configurations
+app.get('/api/share/post/:journalId', (req, res) => {
+    res.redirect(301, `/share/post/${req.params.journalId}`);
+});
 
 app.use('/api', router);
 // Keep legacy root routes available while clients migrate to /api.
