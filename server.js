@@ -44,6 +44,9 @@ app.use(express.urlencoded({extended: true, limit: "2mb", parameterLimit: 1000})
 app.get('/share/post/:journalId', async (req, res) => {
     const { journalId } = req.params;
     const SITE_URL = 'https://iskrib.com';
+    const DEFAULT_OG_IMAGE_WIDTH = 1200;
+    const DEFAULT_OG_IMAGE_HEIGHT = 630;
+    const SOCIAL_PREVIEW_MAX_CHARS = 160;
 
     const makePostUrl = (title) => {
         const slug = title
@@ -66,6 +69,20 @@ app.get('/share/post/:journalId', async (req, res) => {
         // Extract plain text and first image from content
         let description = '';
         let ogImage = null;
+        let ogImageWidth = DEFAULT_OG_IMAGE_WIDTH;
+        let ogImageHeight = DEFAULT_OG_IMAGE_HEIGHT;
+
+        const normalizeWhitespace = (value) => String(value ?? '')
+            .replace(/\s+/g, ' ')
+            .trim();
+
+        const toPreviewText = (value, maxLength = SOCIAL_PREVIEW_MAX_CHARS) => {
+            const normalized = normalizeWhitespace(value);
+            if (!normalized) return '';
+            if (normalized.length <= maxLength) return normalized;
+            if (maxLength <= 3) return normalized.slice(0, maxLength);
+            return `${normalized.slice(0, maxLength - 3).trimEnd()}...`;
+        };
 
         // Extract from Lexical JSON (text posts)
         const extractFromLexical = (contentJson) => {
@@ -80,7 +97,11 @@ app.get('/share/post/:journalId', async (req, res) => {
                         texts.push(node.text);
                     }
                     if (node.type === 'image' && node.src && !firstImage) {
-                        firstImage = node.src;
+                        firstImage = {
+                            src: node.src,
+                            width: Number(node.width),
+                            height: Number(node.height),
+                        };
                     }
                     if (Array.isArray(node.children)) {
                         node.children.forEach(walk);
@@ -92,7 +113,7 @@ app.get('/share/post/:journalId', async (req, res) => {
                 }
 
                 return {
-                    text: texts.join(' ').replace(/\s+/g, ' ').trim().slice(0, 160),
+                    text: normalizeWhitespace(texts.join(' ')),
                     image: firstImage
                 };
             } catch {
@@ -100,17 +121,43 @@ app.get('/share/post/:journalId', async (req, res) => {
             }
         };
 
-        // Extract first image from canvas_doc (canvas posts)
-        const extractCanvasImage = (canvasDocRaw) => {
+        // Extract text + first image from canvas_doc (canvas posts)
+        const extractFromCanvasDoc = (canvasDocRaw) => {
             try {
                 const doc = typeof canvasDocRaw === 'string' ? JSON.parse(canvasDocRaw) : canvasDocRaw;
+                const text = Array.isArray(doc?.snippets)
+                    ? normalizeWhitespace(
+                        doc.snippets
+                            .map((snippet) => (typeof snippet?.text === 'string' ? snippet.text : ''))
+                            .join(' ')
+                    )
+                    : '';
+
+                let image = null;
                 if (Array.isArray(doc?.images)) {
                     const first = doc.images.find((img) => img && typeof img.src === 'string' && img.src);
-                    if (first) return first.src;
+                    if (first) image = first;
                 }
-                return null;
+
+                return { text, image };
             } catch {
-                return null;
+                return { text: '', image: null };
+            }
+        };
+
+        const applyImageDimensions = (imageLike) => {
+            if (!imageLike || typeof imageLike !== 'object') return;
+            const parsedWidth = Number(imageLike.width);
+            const parsedHeight = Number(imageLike.height);
+            const roundedWidth = Math.round(parsedWidth);
+            const roundedHeight = Math.round(parsedHeight);
+
+            // Canvas docs may store normalized dimensions (0-1), so only use realistic pixel values.
+            if (Number.isFinite(parsedWidth) && roundedWidth >= 16) {
+                ogImageWidth = roundedWidth;
+            }
+            if (Number.isFinite(parsedHeight) && roundedHeight >= 16) {
+                ogImageHeight = roundedHeight;
             }
         };
 
@@ -118,13 +165,21 @@ app.get('/share/post/:journalId', async (req, res) => {
             const extracted = extractFromLexical(journal.content);
             description = extracted.text;
             if (extracted.image) {
-                ogImage = extracted.image;
+                ogImage = extracted.image.src;
+                applyImageDimensions(extracted.image);
             }
         }
 
-        // For canvas posts, also check canvas_doc for images
-        if (!ogImage && journal.canvas_doc) {
-            ogImage = extractCanvasImage(journal.canvas_doc);
+        // For canvas posts, use snippet text and canvas images when present.
+        if (journal.canvas_doc) {
+            const canvasData = extractFromCanvasDoc(journal.canvas_doc);
+            if (!description && canvasData.text) {
+                description = canvasData.text;
+            }
+            if (!ogImage && canvasData.image) {
+                ogImage = canvasData.image.src;
+                applyImageDimensions(canvasData.image);
+            }
         }
 
         // Fallback: use the author's avatar, then the site default PNG
@@ -132,13 +187,23 @@ app.get('/share/post/:journalId', async (req, res) => {
             ogImage = journal.users?.image_url || `${SITE_URL}/assets/no-image.png`;
         }
 
-        const title = journal.title || 'Untitled Post';
+        try {
+            ogImage = new URL(ogImage, SITE_URL).toString();
+        } catch {
+            ogImage = `${SITE_URL}/assets/no-image.png`;
+            ogImageWidth = DEFAULT_OG_IMAGE_WIDTH;
+            ogImageHeight = DEFAULT_OG_IMAGE_HEIGHT;
+        }
+
+        const normalizedTitle = typeof journal.title === 'string' ? normalizeWhitespace(journal.title) : '';
+        const title = normalizedTitle || 'Untitled Post';
         const authorName = journal.users?.name || 'Someone';
         if (!description) {
             description = `Read "${title}" by ${authorName} on Iskryb`;
         }
+        description = toPreviewText(description);
 
-        const clientPostUrl = makePostUrl(journal.title);
+        const clientPostUrl = makePostUrl(normalizedTitle);
 
         const escHtml = (str) => String(str)
             .replace(/&/g, '&amp;')
@@ -156,12 +221,16 @@ app.get('/share/post/:journalId', async (req, res) => {
 <meta property="og:title" content="${escHtml(title)}">
 <meta property="og:description" content="${escHtml(description)}">
 <meta property="og:image" content="${escHtml(ogImage)}">
+<meta property="og:image:width" content="${String(ogImageWidth)}">
+<meta property="og:image:height" content="${String(ogImageHeight)}">
 <meta property="og:url" content="${escHtml(clientPostUrl)}">
 <meta property="og:site_name" content="Iskryb">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escHtml(title)}">
 <meta name="twitter:description" content="${escHtml(description)}">
 <meta name="twitter:image" content="${escHtml(ogImage)}">
+<meta name="twitter:image:width" content="${String(ogImageWidth)}">
+<meta name="twitter:image:height" content="${String(ogImageHeight)}">
 <meta http-equiv="refresh" content="0; url=${escHtml(clientPostUrl)}">
 </head>
 <body>
