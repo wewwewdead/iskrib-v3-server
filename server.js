@@ -189,6 +189,13 @@ app.get('/share/post/:journalId', async (req, res) => {
 
         try {
             ogImage = new URL(ogImage, SITE_URL).toString();
+            const imagePath = new URL(ogImage).pathname.toLowerCase();
+            const isSvgImage = imagePath.endsWith('.svg');
+            if (isSvgImage) {
+                ogImage = `${SITE_URL}/assets/no-image.png`;
+                ogImageWidth = DEFAULT_OG_IMAGE_WIDTH;
+                ogImageHeight = DEFAULT_OG_IMAGE_HEIGHT;
+            }
         } catch {
             ogImage = `${SITE_URL}/assets/no-image.png`;
             ogImageWidth = DEFAULT_OG_IMAGE_WIDTH;
