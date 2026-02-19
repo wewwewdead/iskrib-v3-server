@@ -554,6 +554,8 @@ app.get('/share/post/:journalId', async (req, res) => {
 <meta charset="utf-8">
 <title>${escHtml(shareMeta.title)} | Iskryb</title>
 <meta name="description" content="${escHtml(shareMeta.description)}">
+${fbAppIdTag}
+<link rel="canonical" href="${escHtml(clientPostUrl)}">
 <meta property="og:type" content="article">
 <meta property="og:title" content="${escHtml(shareMeta.title)}">
 <meta property="og:description" content="${escHtml(shareMeta.description)}">
@@ -562,14 +564,15 @@ app.get('/share/post/:journalId', async (req, res) => {
 <meta property="og:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
 <meta property="og:url" content="${escHtml(clientPostUrl)}">
 <meta property="og:site_name" content="Iskryb">
-${fbAppIdTag}
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escHtml(shareMeta.title)}">
 <meta name="twitter:description" content="${escHtml(shareMeta.description)}">
 <meta name="twitter:image" content="${escHtml(shareImageUrl)}">
 <meta name="twitter:image:width" content="${String(DEFAULT_OG_IMAGE_WIDTH)}">
 <meta name="twitter:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
-<meta http-equiv="refresh" content="0; url=${escHtml(clientPostUrl)}">
+<script>
+window.location.replace(${JSON.stringify(clientPostUrl)});
+</script>
 </head>
 <body>
 <p>${escHtml(shareMeta.title)} - Redirecting to Iskryb...</p>
