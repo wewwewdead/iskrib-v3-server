@@ -17,7 +17,7 @@ const SOCIAL_PREVIEW_MAX_CHARS = 160;
 const REMOTE_IMAGE_FETCH_TIMEOUT_MS = 7000;
 const REMOTE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
 const SHARE_IMAGE_FETCH_USER_AGENT = 'IskrybShareBot/1.0 (+https://iskrib.com)';
-const META_FB_APP_ID = (process.env.META_FB_APP_ID || process.env.FB_APP_ID || '').trim();
+const META_FB_APP_ID = (process.env.META_FB_APP_ID || process.env.FB_APP_ID || process.env.VITE_FB_APP_ID || '').trim();
 const SHARE_IMAGE_DEBUG = String(process.env.SHARE_IMAGE_DEBUG || '').trim().toLowerCase() === 'true';
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
 
