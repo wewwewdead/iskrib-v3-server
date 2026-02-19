@@ -16,7 +16,10 @@ const DEFAULT_OG_IMAGE_HEIGHT = 630;
 const SOCIAL_PREVIEW_MAX_CHARS = 160;
 const REMOTE_IMAGE_FETCH_TIMEOUT_MS = 7000;
 const REMOTE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
+const SHARE_IMAGE_FETCH_USER_AGENT = 'IskrybShareBot/1.0 (+https://iskrib.com)';
 const META_FB_APP_ID = (process.env.META_FB_APP_ID || process.env.FB_APP_ID || '').trim();
+const SHARE_IMAGE_DEBUG = String(process.env.SHARE_IMAGE_DEBUG || '').trim().toLowerCase() === 'true';
+const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
 
 const normalizeWhitespace = (value) => String(value ?? '')
     .replace(/\s+/g, ' ')
@@ -61,6 +64,42 @@ const getRequestOrigin = (req) => {
     return `${protocol}://${host}`;
 };
 
+const pickFirstNonEmptyString = (...values) => {
+    for (const value of values) {
+        if (typeof value === 'string') {
+            const trimmed = value.trim();
+            if (trimmed) return trimmed;
+        }
+    }
+    return '';
+};
+
+const parseImageDimension = (value) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return undefined;
+    return parsed;
+};
+
+const imageFromNodeLike = (nodeLike) => {
+    if (!nodeLike || typeof nodeLike !== 'object') return null;
+
+    const src = pickFirstNonEmptyString(
+        nodeLike.src,
+        nodeLike.url,
+        nodeLike.image_url,
+        nodeLike.imageUrl,
+        nodeLike?.payload?.src,
+        nodeLike?.data?.src
+    );
+    if (!src) return null;
+
+    return {
+        src,
+        width: parseImageDimension(nodeLike.width),
+        height: parseImageDimension(nodeLike.height),
+    };
+};
+
 const extractFromLexical = (contentJson) => {
     try {
         const parsed = typeof contentJson === 'string' ? JSON.parse(contentJson) : contentJson;
@@ -68,17 +107,21 @@ const extractFromLexical = (contentJson) => {
         let firstImage = null;
 
         const walk = (node) => {
-            if (!node) return;
-            if (node.type === 'text' && node.text) {
+            if (!node || typeof node !== 'object') return;
+
+            const nodeType = String(node.type || node.__type || '').trim().toLowerCase();
+            if (nodeType === 'text' && typeof node.text === 'string') {
                 texts.push(node.text);
             }
-            if (node.type === 'image' && node.src && !firstImage) {
-                firstImage = {
-                    src: node.src,
-                    width: Number(node.width),
-                    height: Number(node.height),
-                };
+
+            const isImageNode = nodeType === 'image' || nodeType.endsWith('image') || nodeType.includes('image');
+            if (!firstImage && isImageNode) {
+                const image = imageFromNodeLike(node);
+                if (image) {
+                    firstImage = image;
+                }
             }
+
             if (Array.isArray(node.children)) {
                 node.children.forEach(walk);
             }
@@ -110,8 +153,8 @@ const extractFromCanvasDoc = (canvasDocRaw) => {
 
         let image = null;
         if (Array.isArray(doc?.images)) {
-            const first = doc.images.find((img) => img && typeof img.src === 'string' && img.src);
-            if (first) image = first;
+            const first = doc.images.find((img) => imageFromNodeLike(img));
+            if (first) image = imageFromNodeLike(first);
         }
 
         return { text, image };
@@ -135,23 +178,42 @@ const buildShareMetaFromJournal = (journal) => {
         description = `Read "${title}" by ${authorName} on Iskryb`;
     }
 
-    const imageCandidate =
-        lexicalData.image?.src ||
-        canvasData.image?.src ||
-        journal?.users?.image_url ||
-        DEFAULT_OG_IMAGE_URL;
+    let imageCandidate = DEFAULT_OG_IMAGE_URL;
+    let imageCandidateSource = 'fallback';
+    if (lexicalData.image?.src) {
+        imageCandidate = lexicalData.image.src;
+        imageCandidateSource = 'lexical';
+    } else if (canvasData.image?.src) {
+        imageCandidate = canvasData.image.src;
+        imageCandidateSource = 'canvas';
+    } else if (journal?.users?.image_url) {
+        imageCandidate = journal.users.image_url;
+        imageCandidateSource = 'author_avatar';
+    }
 
     return {
         title,
         normalizedTitle,
         description: toPreviewText(description),
-        imageCandidate
+        imageCandidate,
+        imageCandidateSource
     };
 };
 
 const resolveAbsoluteHttpUrl = (rawUrl) => {
     try {
-        const parsed = new URL(String(rawUrl || ''), SITE_URL);
+        const raw = String(rawUrl || '').trim();
+        if (!raw) return null;
+
+        const isSupabasePath =
+            raw.startsWith('/storage/v1/object/public/')
+            || raw.startsWith('storage/v1/object/public/');
+
+        const baseUrl = isSupabasePath && SUPABASE_URL
+            ? `${SUPABASE_URL}/`
+            : SITE_URL;
+
+        const parsed = new URL(raw, baseUrl);
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
             return null;
         }
@@ -214,20 +276,49 @@ const isSafeRemoteImageUrl = (imageUrl) => {
     }
 };
 
-const resolveShareImageSourceUrl = (rawUrl) => {
+const evaluateShareImageCandidate = (rawUrl) => {
     const absoluteUrl = resolveAbsoluteHttpUrl(rawUrl);
-    if (!absoluteUrl) return null;
-
-    try {
-        const path = new URL(absoluteUrl).pathname.toLowerCase();
-        if (path.endsWith('.svg')) {
-            return null;
-        }
-    } catch {
-        return null;
+    if (!absoluteUrl) {
+        return {
+            ok: false,
+            reason: 'invalid_or_non_http_url',
+            resolvedUrl: null,
+        };
     }
 
-    return absoluteUrl;
+    let path = '';
+    try {
+        const parsed = new URL(absoluteUrl);
+        path = String(parsed.pathname || '').toLowerCase();
+    } catch {
+        return {
+            ok: false,
+            reason: 'invalid_resolved_url',
+            resolvedUrl: null,
+        };
+    }
+
+    if (path.endsWith('.svg')) {
+        return {
+            ok: false,
+            reason: 'svg_not_supported_for_share_image',
+            resolvedUrl: absoluteUrl,
+        };
+    }
+
+    if (!isSafeRemoteImageUrl(absoluteUrl)) {
+        return {
+            ok: false,
+            reason: 'unsafe_remote_url',
+            resolvedUrl: absoluteUrl,
+        };
+    }
+
+    return {
+        ok: true,
+        reason: 'ok',
+        resolvedUrl: absoluteUrl,
+    };
 };
 
 const fetchRemoteImageBuffer = async (imageUrl) => {
@@ -241,11 +332,18 @@ const fetchRemoteImageBuffer = async (imageUrl) => {
             signal: controller.signal,
             headers: {
                 Accept: 'image/*,*/*;q=0.8',
+                'Accept-Encoding': 'identity',
+                'User-Agent': SHARE_IMAGE_FETCH_USER_AGENT,
             },
         });
 
         if (!response.ok) {
             throw new Error(`upstream image status ${response.status}`);
+        }
+
+        const finalUrl = response.url || imageUrl;
+        if (!isSafeRemoteImageUrl(finalUrl)) {
+            throw new Error('upstream redirected to unsafe url');
         }
 
         const contentType = String(response.headers.get('content-type') || '').toLowerCase();
@@ -254,6 +352,11 @@ const fetchRemoteImageBuffer = async (imageUrl) => {
         }
         if (contentType.includes('image/svg')) {
             throw new Error('svg images are not used for share previews');
+        }
+
+        const headerContentLength = Number(response.headers.get('content-length'));
+        if (Number.isFinite(headerContentLength) && headerContentLength > REMOTE_IMAGE_MAX_BYTES) {
+            throw new Error(`upstream content-length exceeds ${REMOTE_IMAGE_MAX_BYTES} bytes`);
         }
 
         const arrayBuffer = await response.arrayBuffer();
@@ -266,7 +369,12 @@ const fetchRemoteImageBuffer = async (imageUrl) => {
             throw new Error(`upstream image exceeds ${REMOTE_IMAGE_MAX_BYTES} bytes`);
         }
 
-        return buffer;
+        return {
+            buffer,
+            contentType,
+            byteLength: buffer.length,
+            finalUrl,
+        };
     } finally {
         clearTimeout(timeout);
     }
@@ -295,6 +403,15 @@ const getShareJournal = async (journalId) => {
     }
 
     return journal;
+};
+
+const isShareImageDebugRequest = (req) => {
+    const debugFlag = String(req?.query?.debug || '').trim().toLowerCase();
+    return SHARE_IMAGE_DEBUG && (debugFlag === '1' || debugFlag === 'true');
+};
+
+const sendShareImageDebug = (res, payload) => {
+    return res.status(200).json(payload);
 };
 
 const corsOptions = {
@@ -332,33 +449,84 @@ app.use(express.urlencoded({extended: true, limit: "2mb", parameterLimit: 1000})
 // ── Share route: serves OG meta tags for social media previews ──
 app.get('/share/post/:journalId/image', async (req, res) => {
     const { journalId } = req.params;
+    const debugMode = isShareImageDebugRequest(req);
+    const debugPayload = {
+        ok: false,
+        fallback: false,
+        journalId,
+        stage: 'start',
+        reason: '',
+        meta: {
+            imageCandidateSource: null,
+            imageCandidateRaw: null,
+            imageCandidateResolved: null,
+            upstreamFinalUrl: null,
+            upstreamContentType: null,
+            upstreamBytes: null,
+            outputBytes: null,
+        },
+    };
+
+    const fallbackWithReason = (reason) => {
+        debugPayload.ok = false;
+        debugPayload.fallback = true;
+        debugPayload.stage = 'fallback';
+        debugPayload.reason = reason;
+        if (debugMode) {
+            return sendShareImageDebug(res, debugPayload);
+        }
+        return res.redirect(302, DEFAULT_OG_IMAGE_URL);
+    };
 
     try {
         const journal = await getShareJournal(journalId);
+        debugPayload.stage = 'journal_loaded';
         if (!journal) {
-            return res.redirect(302, DEFAULT_OG_IMAGE_URL);
+            return fallbackWithReason('journal_not_found');
         }
 
         const shareMeta = buildShareMetaFromJournal(journal);
-        const candidateUrl = resolveShareImageSourceUrl(shareMeta.imageCandidate);
-        if (!candidateUrl || !isSafeRemoteImageUrl(candidateUrl)) {
-            return res.redirect(302, DEFAULT_OG_IMAGE_URL);
+        debugPayload.stage = 'candidate_extracted';
+        debugPayload.meta.imageCandidateSource = shareMeta.imageCandidateSource;
+        debugPayload.meta.imageCandidateRaw = shareMeta.imageCandidate;
+
+        const candidateEvaluation = evaluateShareImageCandidate(shareMeta.imageCandidate);
+        debugPayload.meta.imageCandidateResolved = candidateEvaluation.resolvedUrl;
+        if (!candidateEvaluation.ok || !candidateEvaluation.resolvedUrl) {
+            return fallbackWithReason(candidateEvaluation.reason);
         }
 
         const normalizedFallbackUrl = new URL(DEFAULT_OG_IMAGE_URL).toString();
-        if (candidateUrl === normalizedFallbackUrl) {
-            return res.redirect(302, DEFAULT_OG_IMAGE_URL);
+        if (candidateEvaluation.resolvedUrl === normalizedFallbackUrl) {
+            return fallbackWithReason('candidate_is_default_fallback');
         }
 
-        const remoteImageBuffer = await fetchRemoteImageBuffer(candidateUrl);
-        const ogImageBuffer = await convertToOgJpeg(remoteImageBuffer);
+        debugPayload.stage = 'fetching_upstream';
+        const remoteImage = await fetchRemoteImageBuffer(candidateEvaluation.resolvedUrl);
+        debugPayload.stage = 'upstream_loaded';
+        debugPayload.meta.upstreamFinalUrl = remoteImage.finalUrl;
+        debugPayload.meta.upstreamContentType = remoteImage.contentType;
+        debugPayload.meta.upstreamBytes = remoteImage.byteLength;
+
+        debugPayload.stage = 'converting_image';
+        const ogImageBuffer = await convertToOgJpeg(remoteImage.buffer);
+        debugPayload.stage = 'converted_image';
+        debugPayload.ok = true;
+        debugPayload.reason = 'ok';
+        debugPayload.meta.outputBytes = ogImageBuffer.length;
+
+        if (debugMode) {
+            return sendShareImageDebug(res, debugPayload);
+        }
 
         res.set('Content-Type', 'image/jpeg');
         res.set('Cache-Control', 'public, max-age=3600');
         return res.send(ogImageBuffer);
     } catch (err) {
+        debugPayload.stage = 'error';
+        debugPayload.reason = err?.message || 'unknown_error';
         console.error('share image route error:', err?.message || err);
-        return res.redirect(302, DEFAULT_OG_IMAGE_URL);
+        return fallbackWithReason(debugPayload.reason);
     }
 });
 
