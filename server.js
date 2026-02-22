@@ -548,10 +548,10 @@ app.get('/share/u/:username/image', async (req, res) => {
         const escapeSvg = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
         const textSvg = `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
-            <text x="${textX}" y="${nameY}" text-anchor="middle" font-family="sans-serif" font-size="48" font-weight="700" fill="white">${escapeSvg(displayName)}</text>
-            <text x="${textX}" y="${handleY}" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="400" fill="white" fill-opacity="0.7">${escapeSvg(handle)}</text>
-            ${bio ? `<text x="${textX}" y="${bioY}" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="400" fill="white" fill-opacity="0.85">${escapeSvg(bio)}</text>` : ''}
-            <text x="${textX}" y="${brandY}" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="600" fill="white" fill-opacity="0.5">iskrib.com</text>
+            <text x="${textX}" y="${nameY}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="48" font-weight="700" fill="white">${escapeSvg(displayName)}</text>
+            <text x="${textX}" y="${handleY}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="28" font-weight="400" fill="white" fill-opacity="0.7">${escapeSvg(handle)}</text>
+            ${bio ? `<text x="${textX}" y="${bioY}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="24" font-weight="400" fill="white" fill-opacity="0.85">${escapeSvg(bio)}</text>` : ''}
+            <text x="${textX}" y="${brandY}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="600" fill="white" fill-opacity="0.5">iskrib.com</text>
         </svg>`;
         const textBuffer = await sharp(Buffer.from(textSvg)).png().toBuffer();
 
