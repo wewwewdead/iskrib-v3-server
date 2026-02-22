@@ -84,10 +84,10 @@ sitemapRouter.get('/sitemap-index.xml', (_req, res) => {
     <loc>${escXml(`${SITE_URL}/sitemap.xml`)}</loc>
   </sitemap>
   <sitemap>
-    <loc>${escXml(`${API_BASE_URL}/api/sitemap-posts.xml`)}</loc>
+    <loc>${escXml(`${SITE_URL}/api/sitemap-posts.xml`)}</loc>
   </sitemap>
   <sitemap>
-    <loc>${escXml(`${API_BASE_URL}/api/sitemap-profiles.xml`)}</loc>
+    <loc>${escXml(`${SITE_URL}/api/sitemap-profiles.xml`)}</loc>
   </sitemap>
 </sitemapindex>`;
 
