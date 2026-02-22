@@ -596,6 +596,7 @@ app.get('/share/u/:username', async (req, res) => {
 
         const displayName = normalizeWhitespace(user.name) || username;
         const bio = toPreviewText(user.bio || '', SOCIAL_PREVIEW_MAX_CHARS) || `Check out ${displayName}'s profile on Iskryb`;
+        const sharePageUrl = new URL(`/share/u/${encodeURIComponent(username)}`, `${shareOrigin}/`).toString();
         const shareImageUrl = new URL(`/share/u/${encodeURIComponent(username)}/image`, `${shareOrigin}/`).toString();
         const fbAppIdTag = META_FB_APP_ID
             ? `<meta property="fb:app_id" content="${escHtml(META_FB_APP_ID)}">`
@@ -608,14 +609,14 @@ app.get('/share/u/:username', async (req, res) => {
 <title>${escHtml(displayName)}'s Profile | Iskryb</title>
 <meta name="description" content="${escHtml(bio)}">
 ${fbAppIdTag}
-<link rel="canonical" href="${escHtml(clientProfileUrl)}">
+<link rel="canonical" href="${escHtml(sharePageUrl)}">
 <meta property="og:type" content="profile">
 <meta property="og:title" content="${escHtml(displayName)}'s Profile | Iskryb">
 <meta property="og:description" content="${escHtml(bio)}">
 <meta property="og:image" content="${escHtml(shareImageUrl)}">
 <meta property="og:image:width" content="${String(DEFAULT_OG_IMAGE_WIDTH)}">
 <meta property="og:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
-<meta property="og:url" content="${escHtml(clientProfileUrl)}">
+<meta property="og:url" content="${escHtml(sharePageUrl)}">
 <meta property="og:site_name" content="Iskryb">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escHtml(displayName)}'s Profile | Iskryb">
@@ -623,9 +624,9 @@ ${fbAppIdTag}
 <meta name="twitter:image" content="${escHtml(shareImageUrl)}">
 <meta name="twitter:image:width" content="${String(DEFAULT_OG_IMAGE_WIDTH)}">
 <meta name="twitter:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
-<meta http-equiv="refresh" content="0;url=${escHtml(clientProfileUrl)}">
+<meta http-equiv="refresh" content="2;url=${escHtml(clientProfileUrl)}">
 <script>
-window.location.replace(${JSON.stringify(clientProfileUrl)});
+setTimeout(function(){window.location.replace(${JSON.stringify(clientProfileUrl)});},2000);
 </script>
 </head>
 <body>
@@ -739,6 +740,7 @@ app.get('/share/post/:journalId', async (req, res) => {
 
         const shareMeta = buildShareMetaFromJournal(journal);
         const clientPostUrl = buildRedirectUrl(shareMeta.normalizedTitle);
+        const sharePageUrl = new URL(`/share/post/${journalId}`, `${shareOrigin}/`).toString();
         const shareImageUrl = new URL(`/share/post/${journalId}/image`, `${shareOrigin}/`).toString();
         const fbAppIdTag = META_FB_APP_ID
             ? `<meta property="fb:app_id" content="${escHtml(META_FB_APP_ID)}">`
@@ -751,14 +753,14 @@ app.get('/share/post/:journalId', async (req, res) => {
 <title>${escHtml(shareMeta.title)} | Iskryb</title>
 <meta name="description" content="${escHtml(shareMeta.description)}">
 ${fbAppIdTag}
-<link rel="canonical" href="${escHtml(clientPostUrl)}">
+<link rel="canonical" href="${escHtml(sharePageUrl)}">
 <meta property="og:type" content="article">
 <meta property="og:title" content="${escHtml(shareMeta.title)}">
 <meta property="og:description" content="${escHtml(shareMeta.description)}">
 <meta property="og:image" content="${escHtml(shareImageUrl)}">
 <meta property="og:image:width" content="${String(DEFAULT_OG_IMAGE_WIDTH)}">
 <meta property="og:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
-<meta property="og:url" content="${escHtml(clientPostUrl)}">
+<meta property="og:url" content="${escHtml(sharePageUrl)}">
 <meta property="og:site_name" content="Iskryb">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="${escHtml(shareMeta.title)}">
@@ -766,8 +768,9 @@ ${fbAppIdTag}
 <meta name="twitter:image" content="${escHtml(shareImageUrl)}">
 <meta name="twitter:image:width" content="${String(DEFAULT_OG_IMAGE_WIDTH)}">
 <meta name="twitter:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
+<meta http-equiv="refresh" content="2;url=${escHtml(clientPostUrl)}">
 <script>
-window.location.replace(${JSON.stringify(clientPostUrl)});
+setTimeout(function(){window.location.replace(${JSON.stringify(clientPostUrl)});},2000);
 </script>
 </head>
 <body>
