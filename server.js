@@ -19,7 +19,6 @@ const __dirname = dirname(__filename);
 const FONT_DIR = join(__dirname, '.fonts');
 const FONT_PATH = join(FONT_DIR, 'DejaVuSans.ttf');
 const FONT_BOLD_PATH = join(FONT_DIR, 'DejaVuSans-Bold.ttf');
-const FONT_CONF_PATH = join(FONT_DIR, 'fonts.conf');
 let fontsReady = false;
 
 async function ensureShareFonts() {
@@ -30,34 +29,20 @@ async function ensureShareFonts() {
         const downloads = [];
         if (!existsSync(FONT_PATH)) {
             downloads.push(
-                fetch('https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/DejaVuSans.ttf')
-                    .then(r => r.arrayBuffer())
+                fetch('https://cdn.jsdelivr.net/npm/@vintproykt/dejavu-fonts-ttf@2.37.0/ttf/DejaVuSans.ttf')
+                    .then(r => { if (!r.ok) throw new Error(`Font fetch failed: ${r.status}`); return r.arrayBuffer(); })
                     .then(buf => writeFileSync(FONT_PATH, Buffer.from(buf)))
             );
         }
         if (!existsSync(FONT_BOLD_PATH)) {
             downloads.push(
-                fetch('https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/DejaVuSans-Bold.ttf')
-                    .then(r => r.arrayBuffer())
+                fetch('https://cdn.jsdelivr.net/npm/@vintproykt/dejavu-fonts-ttf@2.37.0/ttf/DejaVuSans-Bold.ttf')
+                    .then(r => { if (!r.ok) throw new Error(`Bold font fetch failed: ${r.status}`); return r.arrayBuffer(); })
                     .then(buf => writeFileSync(FONT_BOLD_PATH, Buffer.from(buf)))
             );
         }
         if (downloads.length) await Promise.all(downloads);
 
-        // Write fontconfig config pointing to our bundled fonts
-        const fontsConf = `<?xml version="1.0"?>
-<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
-<fontconfig>
-    <dir>${FONT_DIR.replace(/\\/g, '/')}</dir>
-    <match target="pattern">
-        <test qual="any" name="family"><string>sans-serif</string></test>
-        <edit name="family" mode="prepend" binding="same"><string>DejaVu Sans</string></edit>
-    </match>
-    <cachedir>${FONT_DIR.replace(/\\/g, '/')}/cache</cachedir>
-</fontconfig>`;
-        writeFileSync(FONT_CONF_PATH, fontsConf);
-
-        process.env.FONTCONFIG_FILE = FONT_CONF_PATH;
         fontsReady = true;
         console.log('Share fonts ready:', FONT_DIR);
     } catch (err) {
@@ -594,22 +579,33 @@ app.get('/share/u/:username/image', async (req, res) => {
             }
         }
 
-        // ── Text overlay SVG ──
-        const textX = DEFAULT_OG_IMAGE_WIDTH / 2;
+        // ── Text overlays using Sharp text API (bypasses fontconfig) ──
         const nameY = avatarComposite ? 340 : 240;
-        const handleY = nameY + 40;
-        const bioY = handleY + 45;
-        const brandY = DEFAULT_OG_IMAGE_HEIGHT - 40;
+        const handleY = nameY + 50;
+        const bioY = handleY + 50;
+        const brandY = DEFAULT_OG_IMAGE_HEIGHT - 50;
 
-        const escapeSvg = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        const escapeMarkup = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 
-        const textSvg = `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
-            <text x="${textX}" y="${nameY}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="48" font-weight="700" fill="white">${escapeSvg(displayName)}</text>
-            <text x="${textX}" y="${handleY}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="28" font-weight="400" fill="white" fill-opacity="0.7">${escapeSvg(handle)}</text>
-            ${bio ? `<text x="${textX}" y="${bioY}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="24" font-weight="400" fill="white" fill-opacity="0.85">${escapeSvg(bio)}</text>` : ''}
-            <text x="${textX}" y="${brandY}" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="22" font-weight="600" fill="white" fill-opacity="0.5">iskrib.com</text>
-        </svg>`;
-        const textBuffer = await sharp(Buffer.from(textSvg)).png().toBuffer();
+        async function makeTextImage(text, { fontfile, fontSize, opacity = 1, maxWidth = DEFAULT_OG_IMAGE_WIDTH }) {
+            let buf = await sharp({
+                text: {
+                    text: `<span foreground="white" size="${Math.round(fontSize * 1024)}">${escapeMarkup(text)}</span>`,
+                    fontfile,
+                    rgba: true,
+                    width: maxWidth,
+                    align: 'centre',
+                    dpi: 72,
+                },
+            }).png().toBuffer();
+            if (opacity < 1) {
+                buf = await sharp(buf)
+                    .linear([1, 1, 1, opacity], [0, 0, 0, 0])
+                    .png()
+                    .toBuffer();
+            }
+            return buf;
+        }
 
         // ── Compose all layers ──
         const composites = [
@@ -621,7 +617,27 @@ app.get('/share/u/:username/image', async (req, res) => {
             composites.push({ input: avatarComposite, top: 100, left: avatarLeft });
         }
 
-        composites.push({ input: textBuffer, top: 0, left: 0 });
+        // Name (bold)
+        const nameBuf = await makeTextImage(displayName, { fontfile: FONT_BOLD_PATH, fontSize: 48 });
+        const nameMeta = await sharp(nameBuf).metadata();
+        composites.push({ input: nameBuf, top: Math.max(0, nameY - nameMeta.height), left: Math.round((DEFAULT_OG_IMAGE_WIDTH - nameMeta.width) / 2) });
+
+        // Handle
+        const handleBuf = await makeTextImage(handle, { fontfile: FONT_PATH, fontSize: 28, opacity: 0.7 });
+        const handleMeta = await sharp(handleBuf).metadata();
+        composites.push({ input: handleBuf, top: Math.max(0, handleY - handleMeta.height), left: Math.round((DEFAULT_OG_IMAGE_WIDTH - handleMeta.width) / 2) });
+
+        // Bio
+        if (bio) {
+            const bioBuf = await makeTextImage(bio, { fontfile: FONT_PATH, fontSize: 24, opacity: 0.85, maxWidth: DEFAULT_OG_IMAGE_WIDTH - 100 });
+            const bioMeta = await sharp(bioBuf).metadata();
+            composites.push({ input: bioBuf, top: Math.max(0, bioY - bioMeta.height), left: Math.round((DEFAULT_OG_IMAGE_WIDTH - bioMeta.width) / 2) });
+        }
+
+        // Brand
+        const brandBuf = await makeTextImage('iskrib.com', { fontfile: FONT_BOLD_PATH, fontSize: 22, opacity: 0.5 });
+        const brandMeta = await sharp(brandBuf).metadata();
+        composites.push({ input: brandBuf, top: Math.max(0, brandY - brandMeta.height), left: Math.round((DEFAULT_OG_IMAGE_WIDTH - brandMeta.width) / 2) });
 
         const finalImage = await sharp(baseLayer)
             .composite(composites)
