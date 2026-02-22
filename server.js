@@ -624,9 +624,8 @@ ${fbAppIdTag}
 <meta name="twitter:image" content="${escHtml(shareImageUrl)}">
 <meta name="twitter:image:width" content="${String(DEFAULT_OG_IMAGE_WIDTH)}">
 <meta name="twitter:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
-<meta http-equiv="refresh" content="2;url=${escHtml(clientProfileUrl)}">
 <script>
-setTimeout(function(){window.location.replace(${JSON.stringify(clientProfileUrl)});},2000);
+window.location.replace(${JSON.stringify(clientProfileUrl)});
 </script>
 </head>
 <body>
@@ -768,9 +767,8 @@ ${fbAppIdTag}
 <meta name="twitter:image" content="${escHtml(shareImageUrl)}">
 <meta name="twitter:image:width" content="${String(DEFAULT_OG_IMAGE_WIDTH)}">
 <meta name="twitter:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
-<meta http-equiv="refresh" content="2;url=${escHtml(clientPostUrl)}">
 <script>
-setTimeout(function(){window.location.replace(${JSON.stringify(clientPostUrl)});},2000);
+window.location.replace(${JSON.stringify(clientPostUrl)});
 </script>
 </head>
 <body>
