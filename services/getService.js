@@ -1322,6 +1322,57 @@ export const getBookmarksService = async(userId, before, limit) => {
     }
 }
 
+export const searchUsersService = async(query, limit = 10) => {
+    const normalizedQuery = normalizeSearchQuery(query);
+    if(!normalizedQuery || normalizedQuery.length < SEARCH_QUERY_MIN_LENGTH){
+        throw {status: 400, error: `query should be at least ${SEARCH_QUERY_MIN_LENGTH} characters`};
+    }
+
+    const parsedLimit = parseInt(limit);
+    if(isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > SEARCH_LIMIT_MAX){
+        throw {status: 400, error: `limit should be an integer between 1 and ${SEARCH_LIMIT_MAX}`};
+    }
+
+    const escapedQuery = normalizedQuery.replace(/[%_]/g, (match) => `\\${match}`);
+    const selectColumns = 'id, name, username, image_url, badge';
+
+    const [nameResult, usernameResult] = await Promise.all([
+        supabase
+            .from('users')
+            .select(selectColumns)
+            .ilike('name', `%${escapedQuery}%`)
+            .limit(parsedLimit + 1),
+        supabase
+            .from('users')
+            .select(selectColumns)
+            .ilike('username', `%${escapedQuery}%`)
+            .limit(parsedLimit + 1)
+    ]);
+
+    if(nameResult.error || usernameResult.error){
+        console.error('user search error:', nameResult.error?.message || usernameResult.error?.message);
+        throw {status: 500, error: 'supabase error while searching users'};
+    }
+
+    const userMap = new Map();
+    (nameResult.data || []).forEach((user) => {
+        userMap.set(user.id, user);
+    });
+    (usernameResult.data || []).forEach((user) => {
+        if(!userMap.has(user.id)){
+            userMap.set(user.id, user);
+        }
+    });
+
+    const users = [...userMap.values()];
+    const hasMore = users.length > parsedLimit;
+
+    return {
+        data: hasMore ? users.slice(0, parsedLimit) : users,
+        hasMore: hasMore
+    };
+}
+
 export const searchJournalsService = async(query, limit, userId) => {
     const normalizedQuery = normalizeSearchQuery(query);
     if(!normalizedQuery || normalizedQuery.length < SEARCH_QUERY_MIN_LENGTH){

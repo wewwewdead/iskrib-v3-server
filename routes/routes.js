@@ -9,7 +9,7 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, updateJournalController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCanvasGalleryController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUniversePostsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController } from "../controller/getController.js";
+import { getBookmarksController, getCanvasGalleryController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUniversePostsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
 import { createCanvasRemixController } from "../controller/canvasController.js";
 import { clearMyFreedomWallDoodlesController, createFreedomWallItemController, deleteFreedomWallItemController, getCurrentFreedomWallWeekController, getFreedomWallItemsController, getFreedomWallStickersController, getFreedomWallWeeksController, reportFreedomWallItemController, updateFreedomWallItemController } from "../controller/freedomWallController.js";
@@ -143,6 +143,7 @@ router.get('/journals', getJournalsController);
 router.get('/journals/hottest-monthly', getMonthlyHottestJournalsController);
 router.get('/journals/canvas/gallery', getCanvasGalleryController);
 router.get('/journals/search', searchJournalsController);
+router.get('/users/search', searchUsersController);
 router.get('/journal/:journalId', getJournalByIdController);
 router.get('/universe/posts', getUniversePostsController);
 

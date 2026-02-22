@@ -8,6 +8,7 @@ import router from "./routes/routes.js";
 import sitemapRouter from "./routes/sitemapRoutes.js";
 import supabase from "./services/supabase.js";
 import { SITE_URL as SITE_URL_SHARED, makePostUrl as makePostUrlShared } from "./utils/urlUtils.js";
+import { getUserByUsernameService } from "./services/getUserDataService.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -443,6 +444,203 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({extended: true, limit: "2mb", parameterLimit: 1000}));
 
+// ── Profile share route: composite OG image for social media ──
+app.get('/share/u/:username/image', async (req, res) => {
+    const { username } = req.params;
+
+    try {
+        const result = await getUserByUsernameService(username);
+        const user = result?.userData?.[0];
+        if (!user) {
+            return res.redirect(302, DEFAULT_OG_IMAGE_URL);
+        }
+
+        const displayName = normalizeWhitespace(user.name) || username;
+        const handle = `@${normalizeWhitespace(user.username || username)}`;
+        const bio = toPreviewText(user.bio || '', 120);
+
+        // ── Fetch background image ──
+        let bgBuffer = null;
+        const bgStyle = user.background || {};
+        const bgImageMatch = typeof bgStyle.backgroundImage === 'string'
+            ? bgStyle.backgroundImage.match(/url\(["']?([^"')]+)["']?\)/)
+            : null;
+        const bgImageUrl = bgImageMatch?.[1];
+
+        if (bgImageUrl) {
+            const bgEval = evaluateShareImageCandidate(bgImageUrl);
+            if (bgEval.ok && bgEval.resolvedUrl) {
+                try {
+                    const remote = await fetchRemoteImageBuffer(bgEval.resolvedUrl);
+                    bgBuffer = remote.buffer;
+                } catch { /* use fallback gradient */ }
+            }
+        }
+
+        // ── Base layer: background or dark gradient ──
+        let baseLayer;
+        if (bgBuffer) {
+            baseLayer = await sharp(bgBuffer, { limitInputPixels: 60_000_000 })
+                .resize(DEFAULT_OG_IMAGE_WIDTH, DEFAULT_OG_IMAGE_HEIGHT, { fit: 'cover' })
+                .toBuffer();
+        } else {
+            // Dark gradient fallback
+            const gradientSvg = `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
+                <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" style="stop-color:#1a1a2e"/>
+                    <stop offset="100%" style="stop-color:#16213e"/>
+                </linearGradient></defs>
+                <rect width="100%" height="100%" fill="url(#g)"/>
+            </svg>`;
+            baseLayer = await sharp(Buffer.from(gradientSvg))
+                .resize(DEFAULT_OG_IMAGE_WIDTH, DEFAULT_OG_IMAGE_HEIGHT)
+                .png()
+                .toBuffer();
+        }
+
+        // ── Dark overlay for text readability ──
+        const overlaySvg = `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
+            <rect width="100%" height="100%" fill="rgba(0,0,0,0.55)"/>
+        </svg>`;
+        const overlayBuffer = await sharp(Buffer.from(overlaySvg)).png().toBuffer();
+
+        // ── Circular avatar ──
+        let avatarComposite = null;
+        const avatarSize = 180;
+        const avatarUrl = user.image_url;
+        if (avatarUrl) {
+            const avatarEval = evaluateShareImageCandidate(avatarUrl);
+            if (avatarEval.ok && avatarEval.resolvedUrl) {
+                try {
+                    const remote = await fetchRemoteImageBuffer(avatarEval.resolvedUrl);
+                    const circleMask = Buffer.from(
+                        `<svg width="${avatarSize}" height="${avatarSize}">
+                            <circle cx="${avatarSize / 2}" cy="${avatarSize / 2}" r="${avatarSize / 2}" fill="white"/>
+                        </svg>`
+                    );
+                    const resizedAvatar = await sharp(remote.buffer, { limitInputPixels: 60_000_000 })
+                        .resize(avatarSize, avatarSize, { fit: 'cover' })
+                        .png()
+                        .toBuffer();
+                    const circularAvatar = await sharp(resizedAvatar)
+                        .composite([{ input: circleMask, blend: 'dest-in' }])
+                        .png()
+                        .toBuffer();
+                    avatarComposite = circularAvatar;
+                } catch { /* skip avatar */ }
+            }
+        }
+
+        // ── Text overlay SVG ──
+        const textX = DEFAULT_OG_IMAGE_WIDTH / 2;
+        const nameY = avatarComposite ? 340 : 240;
+        const handleY = nameY + 40;
+        const bioY = handleY + 45;
+        const brandY = DEFAULT_OG_IMAGE_HEIGHT - 40;
+
+        const escapeSvg = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+        const textSvg = `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
+            <style>
+                .name { font-family: sans-serif; font-size: 48px; font-weight: 700; fill: #ffffff; }
+                .handle { font-family: sans-serif; font-size: 28px; font-weight: 400; fill: rgba(255,255,255,0.7); }
+                .bio { font-family: sans-serif; font-size: 24px; font-weight: 400; fill: rgba(255,255,255,0.85); }
+                .brand { font-family: sans-serif; font-size: 22px; font-weight: 600; fill: rgba(255,255,255,0.5); }
+            </style>
+            <text x="${textX}" y="${nameY}" text-anchor="middle" class="name">${escapeSvg(displayName)}</text>
+            <text x="${textX}" y="${handleY}" text-anchor="middle" class="handle">${escapeSvg(handle)}</text>
+            ${bio ? `<text x="${textX}" y="${bioY}" text-anchor="middle" class="bio">${escapeSvg(bio)}</text>` : ''}
+            <text x="${textX}" y="${brandY}" text-anchor="middle" class="brand">iskrib.com</text>
+        </svg>`;
+        const textBuffer = await sharp(Buffer.from(textSvg)).png().toBuffer();
+
+        // ── Compose all layers ──
+        const composites = [
+            { input: overlayBuffer, top: 0, left: 0 },
+        ];
+
+        if (avatarComposite) {
+            const avatarLeft = Math.round((DEFAULT_OG_IMAGE_WIDTH - avatarSize) / 2);
+            composites.push({ input: avatarComposite, top: 100, left: avatarLeft });
+        }
+
+        composites.push({ input: textBuffer, top: 0, left: 0 });
+
+        const finalImage = await sharp(baseLayer)
+            .composite(composites)
+            .jpeg({ quality: 82, mozjpeg: true })
+            .toBuffer();
+
+        res.set('Content-Type', 'image/jpeg');
+        res.set('Cache-Control', 'public, max-age=3600');
+        return res.send(finalImage);
+    } catch (err) {
+        console.error('profile share image route error:', err?.message || err);
+        return res.redirect(302, DEFAULT_OG_IMAGE_URL);
+    }
+});
+
+// ── Profile share route: serves OG meta tags for social media previews ──
+app.get('/share/u/:username', async (req, res) => {
+    const { username } = req.params;
+    const shareOrigin = getRequestOrigin(req);
+    const clientProfileUrl = `${SITE_URL}/@${encodeURIComponent(username)}`;
+
+    try {
+        const result = await getUserByUsernameService(username);
+        const user = result?.userData?.[0];
+        if (!user) {
+            return res.redirect(302, clientProfileUrl);
+        }
+
+        const displayName = normalizeWhitespace(user.name) || username;
+        const bio = toPreviewText(user.bio || '', SOCIAL_PREVIEW_MAX_CHARS) || `Check out ${displayName}'s profile on Iskryb`;
+        const shareImageUrl = new URL(`/share/u/${encodeURIComponent(username)}/image`, `${shareOrigin}/`).toString();
+        const fbAppIdTag = META_FB_APP_ID
+            ? `<meta property="fb:app_id" content="${escHtml(META_FB_APP_ID)}">`
+            : '';
+
+        const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>${escHtml(displayName)}'s Profile | Iskryb</title>
+<meta name="description" content="${escHtml(bio)}">
+${fbAppIdTag}
+<link rel="canonical" href="${escHtml(clientProfileUrl)}">
+<meta property="og:type" content="profile">
+<meta property="og:title" content="${escHtml(displayName)}'s Profile | Iskryb">
+<meta property="og:description" content="${escHtml(bio)}">
+<meta property="og:image" content="${escHtml(shareImageUrl)}">
+<meta property="og:image:width" content="${String(DEFAULT_OG_IMAGE_WIDTH)}">
+<meta property="og:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
+<meta property="og:url" content="${escHtml(clientProfileUrl)}">
+<meta property="og:site_name" content="Iskryb">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${escHtml(displayName)}'s Profile | Iskryb">
+<meta name="twitter:description" content="${escHtml(bio)}">
+<meta name="twitter:image" content="${escHtml(shareImageUrl)}">
+<meta name="twitter:image:width" content="${String(DEFAULT_OG_IMAGE_WIDTH)}">
+<meta name="twitter:image:height" content="${String(DEFAULT_OG_IMAGE_HEIGHT)}">
+<meta http-equiv="refresh" content="0;url=${escHtml(clientProfileUrl)}">
+<script>
+window.location.replace(${JSON.stringify(clientProfileUrl)});
+</script>
+</head>
+<body>
+<p>${escHtml(displayName)}'s Profile - Redirecting to Iskryb...</p>
+<a href="${escHtml(clientProfileUrl)}">Click here if not redirected</a>
+</body>
+</html>`;
+
+        res.set('Content-Type', 'text/html; charset=utf-8');
+        return res.send(html);
+    } catch (err) {
+        console.error('profile share route error:', err?.message || err);
+        return res.redirect(302, clientProfileUrl);
+    }
+});
+
 // ── Share route: serves OG meta tags for social media previews ──
 app.get('/share/post/:journalId/image', async (req, res) => {
     const { journalId } = req.params;
@@ -592,6 +790,15 @@ app.get('/api/share/post/:journalId/image', (req, res) => {
 
 app.get('/api/share/post/:journalId', (req, res) => {
     res.redirect(301, `/share/post/${req.params.journalId}`);
+});
+
+// Also handle /api/share/u/:username so getProfileShareUrl works in both configurations
+app.get('/api/share/u/:username/image', (req, res) => {
+    res.redirect(301, `/share/u/${req.params.username}/image`);
+});
+
+app.get('/api/share/u/:username', (req, res) => {
+    res.redirect(301, `/share/u/${req.params.username}`);
 });
 
 app.use('/api', sitemapRouter);

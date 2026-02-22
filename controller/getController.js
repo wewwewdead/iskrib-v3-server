@@ -1,4 +1,4 @@
-import { getBookmarksService, getCanvasGalleryService, getCommentsService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUniversePostsService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService } from "../services/getService.js";
+import { getBookmarksService, getCanvasGalleryService, getCommentsService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUniversePostsService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService, searchUsersService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -116,6 +116,18 @@ export const searchJournalsController = async(req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(error?.status || 500).json({error: error?.error || 'failed to search journals'});
+    }
+}
+
+export const searchUsersController = async(req, res) => {
+    const {query = '', limit = 10} = req.query;
+
+    try {
+        const response = await searchUsersService(query, limit);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || 'failed to search users'});
     }
 }
 
