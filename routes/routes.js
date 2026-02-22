@@ -2,6 +2,7 @@ import express from "express";
 import supabase from "../services/supabase.js";
 import multer from "multer";
 import sharp from 'sharp';
+import { getUserByUsernameService } from "../services/getUserDataService.js";
 import { verfifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
@@ -1096,6 +1097,92 @@ router.get('/viewOpinion/:postId/:userId', getViewOpinionController);
 router.post('/addOpinionReply/:parent_id/:user_id/:receiver_id', requireAuth, upload, addOpinionReplyController);
 
 router.get('/getOpinionReply/:parentId', getReplyOpinionsController);
+
+// ── Username endpoints ──
+router.get('/user/:username', async (req, res) => {
+    const { username } = req.params;
+    try {
+        const data = await getUserByUsernameService(username);
+        return res.status(200).json(data);
+    } catch (error) {
+        const status = error?.status || 500;
+        return res.status(status).json({ error: error?.message || 'error fetching user' });
+    }
+});
+
+router.get('/check-username/:username', async (req, res) => {
+    const { username } = req.params;
+    if (!username || typeof username !== 'string') {
+        return res.status(400).json({ error: 'username is required' });
+    }
+
+    const normalized = username.trim().toLowerCase();
+    const RESERVED_WORDS = ['admin', 'root', 'iskrib', 'iskryb', 'support', 'help', 'api', 'www', 'null', 'undefined'];
+    if (RESERVED_WORDS.includes(normalized)) {
+        return res.status(200).json({ available: false, reason: 'reserved' });
+    }
+
+    const { data: existing, error } = await supabase
+        .from('users')
+        .select('id')
+        .ilike('username', normalized)
+        .limit(1);
+
+    if (error) {
+        console.error('check-username error:', error.message);
+        return res.status(500).json({ error: 'database error' });
+    }
+
+    return res.status(200).json({ available: !existing || existing.length === 0 });
+});
+
+router.post('/update-username', requireAuth, async (req, res) => {
+    const userId = req.userId;
+    const { username } = req.body;
+
+    if (!username || typeof username !== 'string') {
+        return res.status(400).json({ error: 'username is required' });
+    }
+
+    const trimmed = username.trim();
+    if (trimmed.length < 3 || trimmed.length > 50) {
+        return res.status(400).json({ error: 'username must be 3-50 characters' });
+    }
+
+    if (!/^[a-zA-Z0-9-]+$/.test(trimmed)) {
+        return res.status(400).json({ error: 'username can only contain letters, numbers, and hyphens' });
+    }
+
+    const normalized = trimmed.toLowerCase();
+    const RESERVED_WORDS = ['admin', 'root', 'iskrib', 'iskryb', 'support', 'help', 'api', 'www', 'null', 'undefined'];
+    if (RESERVED_WORDS.includes(normalized)) {
+        return res.status(400).json({ error: 'this username is reserved' });
+    }
+
+    // Check uniqueness
+    const { data: existing } = await supabase
+        .from('users')
+        .select('id')
+        .ilike('username', normalized)
+        .neq('id', userId)
+        .limit(1);
+
+    if (existing && existing.length > 0) {
+        return res.status(409).json({ error: 'username is already taken' });
+    }
+
+    const { error: updateError } = await supabase
+        .from('users')
+        .update({ username: trimmed.toLowerCase() })
+        .eq('id', userId);
+
+    if (updateError) {
+        console.error('update-username error:', updateError.message);
+        return res.status(500).json({ error: 'failed to update username' });
+    }
+
+    return res.status(200).json({ message: 'success', username: trimmed.toLowerCase() });
+});
 
 router.post('/constellation/request', requireAuth, requestConstellationController);
 router.post('/constellation/respond', requireAuth, respondConstellationController);

@@ -5,11 +5,13 @@ import helmet from "helmet";
 import net from "node:net";
 import sharp from "sharp";
 import router from "./routes/routes.js";
+import sitemapRouter from "./routes/sitemapRoutes.js";
 import supabase from "./services/supabase.js";
+import { SITE_URL as SITE_URL_SHARED, makePostUrl as makePostUrlShared } from "./utils/urlUtils.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SITE_URL = 'https://iskrib.com';
+const SITE_URL = SITE_URL_SHARED;
 const DEFAULT_OG_IMAGE_URL = `${SITE_URL}/assets/no-image.png`;
 const DEFAULT_OG_IMAGE_WIDTH = 1200;
 const DEFAULT_OG_IMAGE_HEIGHT = 630;
@@ -39,12 +41,7 @@ const escHtml = (str) => String(str)
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
-const makePostUrl = (journalId, title = '') => {
-    const slug = title
-        ? title.toLowerCase().trim().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
-        : '';
-    return `${SITE_URL}/home/post/${journalId}${slug ? '/' + slug : ''}`;
-};
+const makePostUrl = makePostUrlShared;
 
 const getRequestOrigin = (req) => {
     const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
@@ -597,6 +594,7 @@ app.get('/api/share/post/:journalId', (req, res) => {
     res.redirect(301, `/share/post/${req.params.journalId}`);
 });
 
+app.use('/api', sitemapRouter);
 app.use('/api', router);
 // Keep legacy root routes available while clients migrate to /api.
 app.use(router)

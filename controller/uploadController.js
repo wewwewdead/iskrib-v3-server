@@ -1,17 +1,18 @@
 import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService } from "../services/uploadService.js";
 
 export const uploadUserDataController = async(req, res) =>{
-    const {bio, name} = req.body;
+    const {bio, name, username} = req.body;
     const file = req.file;
     const userId = req.userId;
     const userEmail = req.authUser?.email;
 
     try {
-        await uploadUserDataService(bio, name, file, userId, userEmail)
+        await uploadUserDataService(bio, name, file, userId, userEmail, username)
         return res.status(200).json({message: 'success'})
     } catch (error) {
         console.error(error);
-        return res.status(500).json({error: 'error upload user data'})
+        const status = error?.status || 500;
+        return res.status(status).json({error: error?.error || 'error upload user data'})
     }
 }
 

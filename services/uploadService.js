@@ -82,7 +82,7 @@ const parseTextContentSafely = (content) => {
     return parsedData;
 }
 
-export const uploadUserDataService = async(bio, name, image, userId, userEmail) =>{
+export const uploadUserDataService = async(bio, name, image, userId, userEmail, username) =>{
     if(!userId){
         throw {staus: 400, error: 'userId is undefined'};
     }
@@ -91,6 +91,28 @@ export const uploadUserDataService = async(bio, name, image, userId, userEmail) 
     }
     if(!bio || typeof bio !== 'string' || bio.length > 150){
         throw {status: 400, error: 'bio should be a string and not more than 150 characters'}
+    }
+
+    // Validate username if provided
+    let validatedUsername = null;
+    if(username && typeof username === 'string'){
+        const trimmed = username.trim().toLowerCase();
+        if(trimmed.length < 3 || trimmed.length > 50){
+            throw {status: 400, error: 'username must be 3-50 characters'};
+        }
+        if(!/^[a-z0-9-]+$/.test(trimmed)){
+            throw {status: 400, error: 'username can only contain lowercase letters, numbers, and hyphens'};
+        }
+        // Check uniqueness
+        const {data: existing} = await supabase
+            .from('users')
+            .select('id')
+            .ilike('username', trimmed)
+            .limit(1);
+        if(existing && existing.length > 0){
+            throw {status: 409, error: 'username is already taken'};
+        }
+        validatedUsername = trimmed;
     }
 
     let publicUrl = null;
@@ -107,6 +129,11 @@ export const uploadUserDataService = async(bio, name, image, userId, userEmail) 
         user_email: userEmail || null,
         image_url: publicUrl ? publicUrl : null
     }
+
+    if(validatedUsername){
+        data.username = validatedUsername;
+    }
+
     const {data: uploadData, error:errorUploadData} = await supabase
     .from('users')
     .insert([data])
