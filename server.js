@@ -4,11 +4,66 @@ import compression from "compression";
 import helmet from "helmet";
 import net from "node:net";
 import sharp from "sharp";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import router from "./routes/routes.js";
 import sitemapRouter from "./routes/sitemapRoutes.js";
 import supabase from "./services/supabase.js";
 import { SITE_URL as SITE_URL_SHARED, makePostUrl as makePostUrlShared } from "./utils/urlUtils.js";
 import { getUserByUsernameService } from "./services/getUserDataService.js";
+
+// ── Bundled font setup for Sharp/librsvg SVG text rendering ──
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const FONT_DIR = join(__dirname, '.fonts');
+const FONT_PATH = join(FONT_DIR, 'DejaVuSans.ttf');
+const FONT_BOLD_PATH = join(FONT_DIR, 'DejaVuSans-Bold.ttf');
+const FONT_CONF_PATH = join(FONT_DIR, 'fonts.conf');
+let fontsReady = false;
+
+async function ensureShareFonts() {
+    if (fontsReady) return;
+    try {
+        if (!existsSync(FONT_DIR)) mkdirSync(FONT_DIR, { recursive: true });
+
+        const downloads = [];
+        if (!existsSync(FONT_PATH)) {
+            downloads.push(
+                fetch('https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/DejaVuSans.ttf')
+                    .then(r => r.arrayBuffer())
+                    .then(buf => writeFileSync(FONT_PATH, Buffer.from(buf)))
+            );
+        }
+        if (!existsSync(FONT_BOLD_PATH)) {
+            downloads.push(
+                fetch('https://cdn.jsdelivr.net/gh/dejavu-fonts/dejavu-fonts@master/ttf/DejaVuSans-Bold.ttf')
+                    .then(r => r.arrayBuffer())
+                    .then(buf => writeFileSync(FONT_BOLD_PATH, Buffer.from(buf)))
+            );
+        }
+        if (downloads.length) await Promise.all(downloads);
+
+        // Write fontconfig config pointing to our bundled fonts
+        const fontsConf = `<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+    <dir>${FONT_DIR.replace(/\\/g, '/')}</dir>
+    <match target="pattern">
+        <test qual="any" name="family"><string>sans-serif</string></test>
+        <edit name="family" mode="prepend" binding="same"><string>DejaVu Sans</string></edit>
+    </match>
+    <cachedir>${FONT_DIR.replace(/\\/g, '/')}/cache</cachedir>
+</fontconfig>`;
+        writeFileSync(FONT_CONF_PATH, fontsConf);
+
+        process.env.FONTCONFIG_FILE = FONT_CONF_PATH;
+        fontsReady = true;
+        console.log('Share fonts ready:', FONT_DIR);
+    } catch (err) {
+        console.error('Failed to setup share fonts:', err?.message || err);
+    }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -447,6 +502,7 @@ app.use(express.urlencoded({extended: true, limit: "2mb", parameterLimit: 1000})
 // ── Profile share route: composite OG image for social media ──
 app.get('/share/u/:username/image', async (req, res) => {
     const { username } = req.params;
+    await ensureShareFonts();
 
     try {
         const result = await getUserByUsernameService(username);
@@ -645,6 +701,7 @@ window.location.replace(${JSON.stringify(clientProfileUrl)});
 // ── Share route: serves OG meta tags for social media previews ──
 app.get('/share/post/:journalId/image', async (req, res) => {
     const { journalId } = req.params;
+    await ensureShareFonts();
     const debugMode = isShareImageDebugRequest(req);
     const debugPayload = {
         ok: false,
