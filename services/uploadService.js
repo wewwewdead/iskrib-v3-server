@@ -160,13 +160,20 @@ export const updateUserDataService = async(name, bio, profileBg, dominantColors,
         throw {status: 400, error: 'error: bio should be a string and not more than 150 characters'}
     }
 
-    const parsedProfileBg = JSON.parse(profileBg);
+    const parsedProfileBg = profileBg ? JSON.parse(profileBg) : undefined;
     const payload = {
         name: name,
         bio: bio,
-        background: parsedProfileBg,
-        dominant_colors: dominantColors, 
-        secondary_colors: secondaryColors
+    }
+
+    if(parsedProfileBg !== undefined){
+        payload.background = parsedProfileBg;
+    }
+    if(dominantColors){
+        payload.dominant_colors = dominantColors;
+    }
+    if(secondaryColors){
+        payload.secondary_colors = secondaryColors;
     }
 
     if(profileFontColor){
