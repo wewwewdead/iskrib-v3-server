@@ -484,14 +484,21 @@ app.get('/share/u/:username/image', async (req, res) => {
                 .resize(DEFAULT_OG_IMAGE_WIDTH, DEFAULT_OG_IMAGE_HEIGHT, { fit: 'cover' })
                 .toBuffer();
         } else {
-            // Dark gradient fallback
-            const gradientSvg = `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
-                <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-                    <stop offset="0%" style="stop-color:#1a1a2e"/>
-                    <stop offset="100%" style="stop-color:#16213e"/>
-                </linearGradient></defs>
-                <rect width="100%" height="100%" fill="url(#g)"/>
-            </svg>`;
+            // Use profile's solid background color if available, otherwise dark fallback
+            const solidColor = (typeof bgStyle.background === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(bgStyle.background.trim()))
+                ? bgStyle.background.trim()
+                : null;
+            const gradientSvg = solidColor
+                ? `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
+                    <rect width="100%" height="100%" fill="${solidColor}"/>
+                </svg>`
+                : `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
+                    <defs><linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#1a1a2e"/>
+                        <stop offset="100%" stop-color="#16213e"/>
+                    </linearGradient></defs>
+                    <rect width="100%" height="100%" fill="url(#g)"/>
+                </svg>`;
             baseLayer = await sharp(Buffer.from(gradientSvg))
                 .resize(DEFAULT_OG_IMAGE_WIDTH, DEFAULT_OG_IMAGE_HEIGHT)
                 .png()
@@ -500,7 +507,7 @@ app.get('/share/u/:username/image', async (req, res) => {
 
         // ── Dark overlay for text readability ──
         const overlaySvg = `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
-            <rect width="100%" height="100%" fill="rgba(0,0,0,0.55)"/>
+            <rect width="100%" height="100%" fill="black" fill-opacity="0.55"/>
         </svg>`;
         const overlayBuffer = await sharp(Buffer.from(overlaySvg)).png().toBuffer();
 
@@ -541,16 +548,10 @@ app.get('/share/u/:username/image', async (req, res) => {
         const escapeSvg = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
         const textSvg = `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
-            <style>
-                .name { font-family: sans-serif; font-size: 48px; font-weight: 700; fill: #ffffff; }
-                .handle { font-family: sans-serif; font-size: 28px; font-weight: 400; fill: rgba(255,255,255,0.7); }
-                .bio { font-family: sans-serif; font-size: 24px; font-weight: 400; fill: rgba(255,255,255,0.85); }
-                .brand { font-family: sans-serif; font-size: 22px; font-weight: 600; fill: rgba(255,255,255,0.5); }
-            </style>
-            <text x="${textX}" y="${nameY}" text-anchor="middle" class="name">${escapeSvg(displayName)}</text>
-            <text x="${textX}" y="${handleY}" text-anchor="middle" class="handle">${escapeSvg(handle)}</text>
-            ${bio ? `<text x="${textX}" y="${bioY}" text-anchor="middle" class="bio">${escapeSvg(bio)}</text>` : ''}
-            <text x="${textX}" y="${brandY}" text-anchor="middle" class="brand">iskrib.com</text>
+            <text x="${textX}" y="${nameY}" text-anchor="middle" font-family="sans-serif" font-size="48" font-weight="700" fill="white">${escapeSvg(displayName)}</text>
+            <text x="${textX}" y="${handleY}" text-anchor="middle" font-family="sans-serif" font-size="28" font-weight="400" fill="white" fill-opacity="0.7">${escapeSvg(handle)}</text>
+            ${bio ? `<text x="${textX}" y="${bioY}" text-anchor="middle" font-family="sans-serif" font-size="24" font-weight="400" fill="white" fill-opacity="0.85">${escapeSvg(bio)}</text>` : ''}
+            <text x="${textX}" y="${brandY}" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="600" fill="white" fill-opacity="0.5">iskrib.com</text>
         </svg>`;
         const textBuffer = await sharp(Buffer.from(textSvg)).png().toBuffer();
 
@@ -584,7 +585,7 @@ app.get('/share/u/:username/image', async (req, res) => {
 app.get('/share/u/:username', async (req, res) => {
     const { username } = req.params;
     const shareOrigin = getRequestOrigin(req);
-    const clientProfileUrl = `${SITE_URL}/@${encodeURIComponent(username)}`;
+    const clientProfileUrl = `${SITE_URL}/u/${encodeURIComponent(username)}`;
 
     try {
         const result = await getUserByUsernameService(username);
