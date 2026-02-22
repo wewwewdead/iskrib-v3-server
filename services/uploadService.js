@@ -496,6 +496,53 @@ export const updateJournalService = async(content, title, journalId, userId, pos
     return true;
 }
 
+export const updateRepostCaptionService = async(journalId, userId, caption) => {
+    if(!journalId){
+        throw {status: 400, error: 'journalId is undefined'};
+    }
+    if(!userId){
+        throw {status: 400, error: 'userId is undefined'};
+    }
+
+    const trimmedCaption = typeof caption === 'string' ? caption.trim() : '';
+    if(trimmedCaption.length > 280){
+        throw {status: 400, error: 'caption must be 280 characters or less'};
+    }
+
+    const {data: journal, error: fetchError} = await supabase
+        .from('journals')
+        .select('id, user_id, is_repost')
+        .eq('id', journalId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if(fetchError){
+        console.error('failed to fetch journal for repost caption update:', fetchError.message);
+        throw {status: 500, error: 'failed to fetch journal'};
+    }
+
+    if(!journal){
+        throw {status: 404, error: 'journal not found'};
+    }
+
+    if(!journal.is_repost){
+        throw {status: 400, error: 'journal is not a repost'};
+    }
+
+    const {error: updateError} = await supabase
+        .from('journals')
+        .update({repost_caption: trimmedCaption || null})
+        .eq('id', journalId)
+        .eq('user_id', userId);
+
+    if(updateError){
+        console.error('supabase error while updating repost caption:', updateError.message);
+        throw {status: 500, error: 'failed to update repost caption'};
+    }
+
+    return true;
+}
+
 export const addReplyOpinionService = async(reply, parentId, userId) => {
     if(!userId){
         console.error('userId is undefined');

@@ -1,4 +1,4 @@
-import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService } from "../services/uploadService.js";
+import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, updateRepostCaptionService } from "../services/uploadService.js";
 
 export const uploadUserDataController = async(req, res) =>{
     const {bio, name, username} = req.body;
@@ -106,6 +106,20 @@ export const updateJournalController = async(req, res) =>{
     } catch (error) {
         console.error(error);
         return res.status(500).json({error: 'failed to update journal'})
+    }
+}
+
+export const updateRepostCaptionController = async(req, res) => {
+    const {journalId, caption} = req.body;
+    const userId = req.userId;
+
+    try {
+        await updateRepostCaptionService(journalId, userId, caption);
+        return res.status(200).json({message: 'repost caption updated successfully'});
+    } catch (error) {
+        console.error('failed to update repost caption:', error);
+        const status = error?.status || 500;
+        return res.status(status).json({error: error?.error || 'failed to update repost caption'});
     }
 }
 
