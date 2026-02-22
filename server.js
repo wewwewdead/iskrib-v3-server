@@ -579,34 +579,6 @@ app.get('/share/u/:username/image', async (req, res) => {
             }
         }
 
-        // ── Text overlays using Sharp text API (bypasses fontconfig) ──
-        const nameY = avatarComposite ? 340 : 240;
-        const handleY = nameY + 50;
-        const bioY = handleY + 50;
-        const brandY = DEFAULT_OG_IMAGE_HEIGHT - 50;
-
-        const escapeMarkup = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-        async function makeTextImage(text, { fontfile, fontSize, opacity = 1, maxWidth = DEFAULT_OG_IMAGE_WIDTH }) {
-            let buf = await sharp({
-                text: {
-                    text: `<span foreground="white" size="${Math.round(fontSize * 1024)}">${escapeMarkup(text)}</span>`,
-                    fontfile,
-                    rgba: true,
-                    width: maxWidth,
-                    align: 'centre',
-                    dpi: 72,
-                },
-            }).png().toBuffer();
-            if (opacity < 1) {
-                buf = await sharp(buf)
-                    .linear([1, 1, 1, opacity], [0, 0, 0, 0])
-                    .png()
-                    .toBuffer();
-            }
-            return buf;
-        }
-
         // ── Compose all layers ──
         const composites = [
             { input: overlayBuffer, top: 0, left: 0 },
@@ -616,28 +588,6 @@ app.get('/share/u/:username/image', async (req, res) => {
             const avatarLeft = Math.round((DEFAULT_OG_IMAGE_WIDTH - avatarSize) / 2);
             composites.push({ input: avatarComposite, top: 100, left: avatarLeft });
         }
-
-        // Name (bold)
-        const nameBuf = await makeTextImage(displayName, { fontfile: FONT_BOLD_PATH, fontSize: 48 });
-        const nameMeta = await sharp(nameBuf).metadata();
-        composites.push({ input: nameBuf, top: Math.max(0, nameY - nameMeta.height), left: Math.round((DEFAULT_OG_IMAGE_WIDTH - nameMeta.width) / 2) });
-
-        // Handle
-        const handleBuf = await makeTextImage(handle, { fontfile: FONT_PATH, fontSize: 28, opacity: 0.7 });
-        const handleMeta = await sharp(handleBuf).metadata();
-        composites.push({ input: handleBuf, top: Math.max(0, handleY - handleMeta.height), left: Math.round((DEFAULT_OG_IMAGE_WIDTH - handleMeta.width) / 2) });
-
-        // Bio
-        if (bio) {
-            const bioBuf = await makeTextImage(bio, { fontfile: FONT_PATH, fontSize: 24, opacity: 0.85, maxWidth: DEFAULT_OG_IMAGE_WIDTH - 100 });
-            const bioMeta = await sharp(bioBuf).metadata();
-            composites.push({ input: bioBuf, top: Math.max(0, bioY - bioMeta.height), left: Math.round((DEFAULT_OG_IMAGE_WIDTH - bioMeta.width) / 2) });
-        }
-
-        // Brand
-        const brandBuf = await makeTextImage('iskrib.com', { fontfile: FONT_BOLD_PATH, fontSize: 22, opacity: 0.5 });
-        const brandMeta = await sharp(brandBuf).metadata();
-        composites.push({ input: brandBuf, top: Math.max(0, brandY - brandMeta.height), left: Math.round((DEFAULT_OG_IMAGE_WIDTH - brandMeta.width) / 2) });
 
         const finalImage = await sharp(baseLayer)
             .composite(composites)
