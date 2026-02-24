@@ -14,6 +14,9 @@ import { addBoorkmarkController, addCommentController, addFollowController, addO
 import { createCanvasRemixController } from "../controller/canvasController.js";
 import { clearMyFreedomWallDoodlesController, createFreedomWallItemController, deleteFreedomWallItemController, getCurrentFreedomWallWeekController, getFreedomWallItemsController, getFreedomWallStickersController, getFreedomWallWeeksController, reportFreedomWallItemController, updateFreedomWallItemController } from "../controller/freedomWallController.js";
 import { requestConstellationController, respondConstellationController, getViewportConstellationsController, deleteConstellationController } from "../controller/constellationController.js";
+import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
+import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
+import { toggleVoteController, toggleLibraryController, getMyLibraryController, getCommentsController as getStoryCommentsController, getCommentCountsController, addCommentController as addStoryCommentController, saveProgressController, getProgressController } from "../controller/storyInteractController.js";
 
 const router = express.Router();
 
@@ -1191,5 +1194,31 @@ router.post('/constellation/request', requireAuth, requestConstellationControlle
 router.post('/constellation/respond', requireAuth, respondConstellationController);
 router.get('/constellation/viewport', getViewportConstellationsController);
 router.delete('/constellation/:id', requireAuth, deleteConstellationController);
+
+// ── Story routes ──
+router.post('/stories', requireAuth, upload, createStoryController);
+router.get('/stories', optionalAuth, getStoriesController);
+router.get('/stories/my', requireAuth, getMyStoriesController);
+router.get('/stories/library', requireAuth, getMyLibraryController);
+router.get('/stories/user/:userId', optionalAuth, getUserStoriesController);
+router.get('/stories/:storyId', optionalAuth, getStoryByIdController);
+router.patch('/stories/:storyId', requireAuth, upload, updateStoryController);
+router.delete('/stories/:storyId', requireAuth, deleteStoryController);
+
+// ── Chapter routes ──
+router.post('/stories/:storyId/chapters', requireAuth, createChapterController);
+router.get('/stories/:storyId/chapters/:chapterId', optionalAuth, getChapterController);
+router.patch('/stories/:storyId/chapters/:chapterId', requireAuth, updateChapterController);
+router.delete('/stories/:storyId/chapters/:chapterId', requireAuth, deleteChapterController);
+router.post('/stories/:storyId/chapters/reorder', requireAuth, reorderChaptersController);
+
+// ── Story interaction routes ──
+router.post('/stories/:storyId/vote', requireAuth, toggleVoteController);
+router.post('/stories/:storyId/library', requireAuth, toggleLibraryController);
+router.get('/chapters/:chapterId/comments', optionalAuth, getStoryCommentsController);
+router.get('/chapters/:chapterId/comment-counts', optionalAuth, getCommentCountsController);
+router.post('/chapters/:chapterId/comments', requireAuth, addStoryCommentController);
+router.post('/stories/:storyId/progress', requireAuth, saveProgressController);
+router.get('/stories/:storyId/progress', requireAuth, getProgressController);
 
 export default router;
