@@ -5,7 +5,7 @@ const SEARCH_LIMIT_MAX = 20;
 const SEARCH_QUERY_MIN_LENGTH = 2;
 const CANVAS_GALLERY_LIMIT_DEFAULT = 36;
 const CANVAS_GALLERY_LIMIT_MAX = 72;
-const CANVAS_GALLERY_HOT_FETCH_LIMIT = 220;
+// Removed: CANVAS_GALLERY_HOT_FETCH_LIMIT — hot sorting now done via PostgreSQL RPC
 const UNIVERSE_POST_LIMIT_DEFAULT = 200;
 const UNIVERSE_POST_LIMIT_MAX = 500;
 const UNIVERSE_SIMILARITY_THRESHOLD = 0.9;
@@ -15,15 +15,14 @@ const UNIVERSE_STAR_PULL_LIMIT = 500;
 const UNIVERSE_POST_SELECT = `
     id,
     title,
-    content,
     post_type,
-    canvas_doc,
     created_at,
     universe_x,
     universe_y,
     settled_x,
     settled_y,
     user_id,
+    views,
     users(id, name, image_url, badge),
     likes(count)
 `;
@@ -31,6 +30,71 @@ const PROFILE_MEDIA_BUCKETS = ['background', 'journal-images', 'avatars'];
 const PROFILE_MEDIA_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.svg'];
 const PROFILE_MEDIA_LIMIT_DEFAULT = 5;
 const PROFILE_MEDIA_LIMIT_MAX = 20;
+const JOURNAL_USER_SELECT = 'id, name, image_url, badge';
+const JOURNAL_BASE_SELECT = `
+    id,
+    user_id,
+    title,
+    content,
+    post_type,
+    canvas_doc,
+    created_at,
+    privacy,
+    views,
+    is_repost,
+    repost_source_journal_id,
+    repost_caption,
+    users(${JOURNAL_USER_SELECT})
+`;
+const JOURNAL_WITH_COUNTS_SELECT = `
+    ${JOURNAL_BASE_SELECT},
+    like_count: likes(count),
+    comment_count: comments(count),
+    bookmark_count: bookmarks(count)
+`;
+// Lightweight select for list/feed views — no content or canvas_doc
+const JOURNAL_METADATA_SELECT = `
+    id,
+    user_id,
+    title,
+    post_type,
+    created_at,
+    privacy,
+    views,
+    is_repost,
+    repost_source_journal_id,
+    repost_caption,
+    users(${JOURNAL_USER_SELECT})
+`;
+const JOURNAL_METADATA_WITH_COUNTS_SELECT = `
+    ${JOURNAL_METADATA_SELECT},
+    like_count: likes(count),
+    comment_count: comments(count),
+    bookmark_count: bookmarks(count)
+`;
+const OPINION_USER_SELECT = 'id, name, image_url, badge';
+const OPINION_BASE_SELECT = `
+    id,
+    user_id,
+    parent_id,
+    opinion,
+    reply_count,
+    created_at
+`;
+const OPINION_WITH_USER_SELECT = `
+    ${OPINION_BASE_SELECT},
+    users(${OPINION_USER_SELECT})
+`;
+const COMMENT_WITH_USER_SELECT = `
+    id,
+    post_id,
+    parent_id,
+    user_id,
+    comment,
+    reply_count,
+    created_at,
+    users(${OPINION_USER_SELECT})
+`;
 
 const attachRepostSources = async (journals) => {
     const items = Array.isArray(journals) ? journals : [journals];
@@ -47,7 +111,7 @@ const attachRepostSources = async (journals) => {
 
     const { data: sources, error } = await supabase
         .from('journals')
-        .select('id, title, content, post_type, canvas_doc, created_at, users(id, name, image_url, badge)')
+        .select('id, title, post_type, created_at, users(id, name, image_url, badge)')
         .in('id', sourceIds);
 
     if (error) {
@@ -411,6 +475,15 @@ const encodeCanvasGalleryCursor = (offset, sort) => {
 };
 
 const resolveMediaUrl = async(bucket, path) => {
+    const {data: publicUrlData} = supabase.storage
+        .from(bucket)
+        .getPublicUrl(path);
+
+    const publicUrl = publicUrlData?.publicUrl || null;
+    if(publicUrl){
+        return publicUrl;
+    }
+
     const {data: signedUrlData, error: signedUrlError} = await supabase.storage
         .from(bucket)
         .createSignedUrl(path, 60 * 60);
@@ -419,11 +492,7 @@ const resolveMediaUrl = async(bucket, path) => {
         return signedUrlData.signedUrl;
     }
 
-    const {data: publicUrlData} = supabase.storage
-        .from(bucket)
-        .getPublicUrl(path);
-
-    return publicUrlData?.publicUrl || null;
+    return null;
 };
 
 const listMediaChunkForBucket = async(bucket, userId, offset, limit) => {
@@ -643,12 +712,7 @@ export const getJournalsService = async(limit, userId, before) => {
 
     let query = supabase
     .from('journals')
-    .select(`
-        *, users(*),
-        like_count: likes(count),
-        comment_count: comments(count),
-        bookmark_count: bookmarks(count)
-        `)
+    .select(JOURNAL_WITH_COUNTS_SELECT)
     .eq('privacy', 'public')
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -735,69 +799,53 @@ export const getMonthlyHottestJournalsService = async(limit, userId) => {
     const monthStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
     const nextMonthStartUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1, 0, 0, 0, 0));
 
-    const {data: journals, error: journalsError} = await supabase
-        .from('journals')
-        .select(`
-            *,
-            users(*),
-            like_count: likes(count),
-            comment_count: comments(count),
-            bookmark_count: bookmarks(count)
-        `)
-        .eq('privacy', 'public')
-        .gte('created_at', monthStartUtc.toISOString())
-        .lt('created_at', nextMonthStartUtc.toISOString());
+    // Use server-side RPC to score and sort — avoids fetching ALL monthly posts
+    const {data: rpcData, error: rpcError} = await supabase.rpc('get_monthly_hottest_journals', {
+        p_limit: parsedLimit
+    });
 
-    if(journalsError){
-        console.error('supabase error while fetching monthly hottest journals:', journalsError.message);
+    if(rpcError){
+        console.error('supabase RPC error (get_monthly_hottest_journals):', rpcError.message);
         throw {status: 500, error: 'supabase error while fetching monthly hottest journals'};
     }
 
-    const journalsWithInteractions = await attachUserInteractionFlags(journals || [], userId);
-    const scored = journalsWithInteractions.map((journal) => {
-        const likes = journal?.like_count?.[0]?.count || 0;
-        const comments = journal?.comment_count?.[0]?.count || 0;
-        const bookmarks = journal?.bookmark_count?.[0]?.count || 0;
-        const views = journal?.views || 0;
-        const hotScore = (views * 6) + (likes * 3) + (comments * 2) + (bookmarks * 2);
+    // Reshape RPC rows to match the format the client expects
+    const journals = (rpcData || []).map((row) => ({
+        id: row.id,
+        user_id: row.user_id,
+        title: row.title,
+        content: row.content,
+        post_type: row.post_type,
+        canvas_doc: row.canvas_doc,
+        created_at: row.created_at,
+        privacy: row.privacy,
+        views: row.views,
+        is_repost: row.is_repost,
+        repost_source_journal_id: row.repost_source_journal_id,
+        repost_caption: row.repost_caption,
+        users: {
+            id: row.user_id,
+            name: row.user_name,
+            image_url: row.user_image_url,
+            badge: row.user_badge
+        },
+        like_count: [{count: row.like_count}],
+        comment_count: [{count: row.comment_count}],
+        bookmark_count: [{count: row.bookmark_count}],
+        hot_score: row.hot_score
+    }));
 
-        return {
-            ...journal,
-            hot_score: hotScore
-        };
-    });
-
-    scored.sort((a, b) => {
-        const scoreDiff = (b?.hot_score || 0) - (a?.hot_score || 0);
-        if(scoreDiff !== 0){
-            return scoreDiff;
-        }
-
-        const dateDiff = new Date(b?.created_at || 0) - new Date(a?.created_at || 0);
-        if(dateDiff !== 0){
-            return dateDiff;
-        }
-
-        return (b?.id || 0) - (a?.id || 0);
-    });
+    const journalsWithInteractions = await attachUserInteractionFlags(journals, userId);
 
     return {
-        data: scored.slice(0, parsedLimit),
+        data: journalsWithInteractions,
         period: {
             startUtc: monthStartUtc.toISOString(),
             endUtc: nextMonthStartUtc.toISOString(),
             timezone: 'UTC'
         },
-        totalCandidates: scored.length
+        totalCandidates: journalsWithInteractions.length
     };
-}
-
-const scoreJournalHotness = (journal) => {
-    const likes = journal?.like_count?.[0]?.count || 0;
-    const comments = journal?.comment_count?.[0]?.count || 0;
-    const bookmarks = journal?.bookmark_count?.[0]?.count || 0;
-    const views = journal?.views || 0;
-    return (views * 6) + (likes * 3) + (comments * 2) + (bookmarks * 2);
 }
 
 export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAULT, userId, sort = 'hottest', cursor = null) => {
@@ -811,56 +859,70 @@ export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAUL
     const parsedCursor = parseCanvasGalleryCursor(cursor, isNewest ? 'newest' : 'hottest');
     const cursorOffset = parsedCursor.offset;
 
-    const baseQuery = supabase
-        .from('journals')
-        .select(`
-            *,
-            users(*),
-            like_count: likes(count),
-            comment_count: comments(count),
-            bookmark_count: bookmarks(count)
-        `)
-        .eq('privacy', 'public')
-        .eq('post_type', 'canvas')
-        .order('created_at', {ascending: false})
-        .order('id', {ascending: false});
+    let journals = [];
+    let journalsError = null;
 
-    const {data: journals, error: journalsError} = isNewest
-        ? await baseQuery.range(cursorOffset, cursorOffset + parsedLimit)
-        : await baseQuery.limit(CANVAS_GALLERY_HOT_FETCH_LIMIT);
+    if(isNewest){
+        // Newest: simple paginated query
+        const result = await supabase
+            .from('journals')
+            .select(JOURNAL_WITH_COUNTS_SELECT)
+            .eq('privacy', 'public')
+            .eq('post_type', 'canvas')
+            .order('created_at', {ascending: false})
+            .order('id', {ascending: false})
+            .range(cursorOffset, cursorOffset + parsedLimit);
+
+        journals = result.data || [];
+        journalsError = result.error;
+    } else {
+        // Hottest: use server-side RPC scoring — avoids fetching 220 rows
+        const result = await supabase.rpc('get_hot_canvas_gallery', {
+            p_limit: parsedLimit,
+            p_offset: cursorOffset
+        });
+
+        if(result.error){
+            journalsError = result.error;
+        } else {
+            // Reshape RPC rows to match client format
+            journals = (result.data || []).map((row) => ({
+                id: row.id,
+                user_id: row.user_id,
+                title: row.title,
+                content: row.content,
+                post_type: row.post_type,
+                canvas_doc: row.canvas_doc,
+                created_at: row.created_at,
+                privacy: row.privacy,
+                views: row.views,
+                is_repost: row.is_repost,
+                repost_source_journal_id: row.repost_source_journal_id,
+                repost_caption: row.repost_caption,
+                users: {
+                    id: row.user_id,
+                    name: row.user_name,
+                    image_url: row.user_image_url,
+                    badge: row.user_badge
+                },
+                like_count: [{count: row.like_count}],
+                comment_count: [{count: row.comment_count}],
+                bookmark_count: [{count: row.bookmark_count}],
+                hot_score: row.hot_score
+            }));
+        }
+    }
 
     if(journalsError){
         console.error('supabase error while fetching canvas gallery journals:', journalsError.message);
         throw {status: 500, error: 'supabase error while fetching canvas gallery journals'};
     }
 
-    const enrichedJournals = await attachUserInteractionFlags(journals || [], userId);
-    const normalizedJournals = enrichedJournals.map((journal) => ({
-        ...journal,
-        hot_score: scoreJournalHotness(journal)
-    }));
+    const enrichedJournals = await attachUserInteractionFlags(journals, userId);
 
-    if(!isNewest){
-        normalizedJournals.sort((a, b) => {
-            const scoreDiff = (b.hot_score || 0) - (a.hot_score || 0);
-            if(scoreDiff !== 0){
-                return scoreDiff;
-            }
-
-            const dateDiff = new Date(b?.created_at || 0) - new Date(a?.created_at || 0);
-            if(dateDiff !== 0){
-                return dateDiff;
-            }
-
-            return (b?.id || 0) - (a?.id || 0);
-        });
-    }
-
-    const paginatedJournals = isNewest
-        ? normalizedJournals
-        : normalizedJournals.slice(cursorOffset, cursorOffset + parsedLimit + 1);
-    const hasMore = paginatedJournals.length > parsedLimit;
-    const data = hasMore ? paginatedJournals.slice(0, parsedLimit) : paginatedJournals;
+    // RPC already returns p_limit + 1 rows for hasMore detection
+    const hasMore = enrichedJournals.length > parsedLimit;
+    const data = hasMore ? enrichedJournals.slice(0, parsedLimit) : enrichedJournals;
     const nextCursor = hasMore
         ? encodeCanvasGalleryCursor(cursorOffset + data.length, isNewest ? 'newest' : 'hottest')
         : null;
@@ -868,7 +930,7 @@ export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAUL
     return {
         data: data,
         sort: isNewest ? 'newest' : 'hottest',
-        totalCandidates: normalizedJournals.length,
+        totalCandidates: data.length,
         hasMore: hasMore,
         nextCursor: nextCursor
     };
@@ -882,13 +944,7 @@ export const getJournalByIdService = async (journalId, userId) => {
 
     const { data: journal, error: journalError } = await supabase
         .from('journals')
-        .select(`
-            *,
-            users(*),
-            like_count: likes(count),
-            comment_count: comments(count),
-            bookmark_count: bookmarks(count)
-        `)
+        .select(JOURNAL_WITH_COUNTS_SELECT)
         .eq('id', journalId)
         .eq('privacy', 'public')
         .maybeSingle();
@@ -955,13 +1011,7 @@ export const getUserJournalsService = async(limit, before, userId) =>{
 
     let query = supabase
     .from('journals')
-    .select(`
-        *,
-        users(name, image_url, user_email, id, badge),
-        like_count: likes(count),
-        comment_count: comments(count),
-        bookmark_count: bookmarks(count)
-        `)
+    .select(JOURNAL_WITH_COUNTS_SELECT)
     .eq('user_id', userId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -1047,13 +1097,7 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
 
     let query = supabase
     .from('journals')
-    .select(`
-        *,
-        users(name, image_url, user_email, id, badge),
-        like_count: likes(count),
-        comment_count: comments(count),
-        bookmark_count: bookmarks(count)
-        `)
+    .select(JOURNAL_WITH_COUNTS_SELECT)
     .eq('user_id', userId)
     .eq('privacy', 'public')
     .order('created_at', {ascending: false})
@@ -1133,7 +1177,7 @@ export const getViewOpinionService = async(postId, userId) => {
 
     let query = supabase
     .from('opinions')
-    .select('*, users(name, id, user_email, image_url, badge, background, profile_font_color, dominant_colors, secondary_colors)')
+    .select(OPINION_WITH_USER_SELECT)
     .eq('id', postId)
     .eq('user_id', userId)
 
@@ -1163,7 +1207,7 @@ export const getCommentsService = async(postId, limit, before) => {
 
     let query = supabase
         .from('comments')
-        .select('*, users(name, image_url, id, badge)')
+        .select(COMMENT_WITH_USER_SELECT)
         .eq('post_id', postId)
         .is('parent_id', null)
         .order('created_at', {ascending: false})
@@ -1202,7 +1246,7 @@ export const getOpinionReplyService = async(parentId, limit, before) =>{
 
     let query = supabase
     .from('opinions')
-    .select('*, users(name, id, user_email, image_url, badge, background, profile_font_color, dominant_colors, secondary_colors)')
+    .select(OPINION_WITH_USER_SELECT)
     .eq('parent_id', parentId)
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)
@@ -1238,13 +1282,13 @@ export const getBookmarksService = async(userId, before, limit) => {
     const paresedLimit = parseInt(limit);
     let query = supabase
     .from('bookmarks')
-    .select(`*,
+    .select(`id, created_at, journal_id,
         journals(
-        id, created_at, user_id, content, title, 
+        id, created_at, user_id, title, post_type,
         comment_count: comments(count),
         bookmark_count: bookmarks(count),
 
-        users(name, user_email, image_url, badge),
+        users(name, image_url, badge),
 
         like_count: likes(count)
         )
@@ -1386,13 +1430,7 @@ export const searchJournalsService = async(query, limit, userId) => {
     const parsedLimit = parseInt(limit);
     const fetchLimit = Math.min(parsedLimit * 3, 60);
 
-    const selectColumns = `
-        *,
-        users(*),
-        like_count: likes(count),
-        comment_count: comments(count),
-        bookmark_count: bookmarks(count)
-    `;
+    const selectColumns = JOURNAL_WITH_COUNTS_SELECT;
 
     // Prefer semantic retrieval. If pgvector RPC is unavailable or errors,
     // fallback to keyword search so endpoint still returns useful data.

@@ -9,6 +9,21 @@ const stripEmbedding = (story) => {
     return rest;
 };
 
+const STORY_SELECT_COLUMNS = `
+    id,
+    author_id,
+    title,
+    description,
+    cover_url,
+    status,
+    tags,
+    privacy,
+    read_count,
+    vote_count,
+    created_at,
+    updated_at
+`;
+
 /**
  * Batch-fetch public user profiles for a list of author IDs.
  */
@@ -83,7 +98,7 @@ export const createStoryService = async (userId, title, description, status, pri
             tags: parsedTags,
             embedding,
         })
-        .select('*')
+        .select(STORY_SELECT_COLUMNS)
         .single();
 
     if (error) {
@@ -99,7 +114,7 @@ export const getStoriesService = async (limit, before, status, tag, userId) => {
 
     let query = supabase
         .from('stories')
-        .select('*')
+        .select(STORY_SELECT_COLUMNS)
         .eq('privacy', 'public')
         .order('created_at', { ascending: false })
         .limit(parsedLimit + 1);
@@ -163,7 +178,7 @@ export const getStoryByIdService = async (storyId, userId) => {
 
     const { data: story, error } = await supabase
         .from('stories')
-        .select('*')
+        .select(STORY_SELECT_COLUMNS)
         .eq('id', storyId)
         .single();
 
@@ -295,7 +310,7 @@ export const updateStoryService = async (storyId, userId, updates, coverFile) =>
         .from('stories')
         .update(updateData)
         .eq('id', storyId)
-        .select('*')
+        .select(STORY_SELECT_COLUMNS)
         .single();
 
     if (error) {
@@ -346,7 +361,7 @@ export const getMyStoriesService = async (userId, limit, before) => {
 
     let query = supabase
         .from('stories')
-        .select(`*, chapters(id, chapter_number, title, status, word_count)`)
+        .select(`${STORY_SELECT_COLUMNS}, chapters(id, chapter_number, title, status, word_count)`)
         .eq('author_id', userId)
         .order('updated_at', { ascending: false })
         .limit(parsedLimit + 1);
@@ -381,7 +396,7 @@ export const getUserStoriesService = async (targetUserId, limit, before) => {
 
     let query = supabase
         .from('stories')
-        .select('*')
+        .select(STORY_SELECT_COLUMNS)
         .eq('author_id', targetUserId)
         .eq('privacy', 'public')
         .order('created_at', { ascending: false })

@@ -82,14 +82,125 @@ const optionalAuth = async (req, _res, next) => {
     return next();
 };
 
+const NOTIFICATION_LIMIT_MIN = 1;
+const NOTIFICATION_LIMIT_MAX = 20;
+const NOTIFICATION_DEFAULT_LIMIT = 5;
+const NOTIFICATION_JOURNAL_SELECT = `
+    id,
+    sender_id,
+    receiver_id,
+    journal_id,
+    repost_journal_id,
+    type,
+    read,
+    created_at,
+    constellation_id,
+    journals!journal_id(
+        title,
+        content,
+        created_at,
+        likes(count),
+        comments(count),
+        bookmarks(count),
+        users(id, name, image_url, badge)
+    ),
+    users!sender_id(id, name, image_url, badge),
+    constellations!constellation_id(status, star_id_a, star_id_b)
+`;
+const NOTIFICATION_OPINION_SELECT = `
+    id,
+    sender_id,
+    receiver_id,
+    opinion_id,
+    read,
+    created_at,
+    opinions!opinion_id(id, opinion, user_id, created_at),
+    users!sender_id(id, name, image_url, badge)
+`;
+const COLLECTION_SELECT_COLUMNS = `
+    id,
+    user_id,
+    name,
+    description,
+    is_public,
+    created_at
+`;
+const COLLECTION_JOURNALS_SELECT = `
+    id,
+    journals(
+        id,
+        title,
+        created_at,
+        user_id,
+        content,
+        users(id, image_url, name, badge),
+        comments!post_id(count),
+        bookmarks!journal_id(count),
+        likes!journal_id(count)
+    )
+`;
+const NOT_COLLECTED_JOURNAL_SELECT = 'id, created_at, title, content';
+const OPINION_LIST_SELECT = `
+    id,
+    user_id,
+    parent_id,
+    opinion,
+    reply_count,
+    created_at,
+    users(name, id, user_email, image_url, badge)
+`;
+const MY_OPINION_SELECT = `
+    id,
+    user_id,
+    parent_id,
+    opinion,
+    reply_count,
+    created_at
+`;
+const USER_OPINION_SELECT = `
+    id,
+    user_id,
+    parent_id,
+    opinion,
+    reply_count,
+    created_at,
+    users(name, image_url, id, badge)
+`;
+const COMMENT_REPLY_SELECT = `
+    id,
+    post_id,
+    parent_id,
+    user_id,
+    comment,
+    reply_count,
+    created_at,
+    users(name, image_url, id, badge)
+`;
+
+const parseLimitWithinRange = (value, min, max, fallback = null) => {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) {
+        return fallback;
+    }
+    if (parsed < min || parsed > max) {
+        return null;
+    }
+    return parsed;
+};
+
 export const imageUploader = async(file, userId, bucket) =>{
     if(!file){
-        return res.status(500).json({error: 'no file received'});
+        throw new Error('no file received');
+    }
+
+    const sourceBuffer = Buffer.isBuffer(file) ? file : file?.buffer;
+    if(!sourceBuffer){
+        throw new Error('invalid file payload');
     }
 
     let img_buffer = null
     let img_url = null
-    img_buffer = await sharp(file.buffer)
+    img_buffer = await sharp(sourceBuffer)
     .webp({quality: 80})
     .toBuffer();
 
@@ -101,11 +212,12 @@ export const imageUploader = async(file, userId, bucket) =>{
     .from(bucket)
     .upload(filePath, img_buffer, {
         contentType: 'image/webp',
+        cacheControl: '31536000',
         upsert: true
     })
     if(errorUploadImage){
         console.error('supabase error while uploading image to supabase bucket', errorUploadImage)
-        return res.status(500).json({error: 'error uploading image into supabase bucket'});
+        throw new Error('error uploading image into supabase bucket');
     }
     const {data: data_url} = supabase.storage
     .from(bucket)
@@ -260,22 +372,25 @@ router.get('/getCountNotifications', requireAuth, async(req, res) =>{
 }) 
 
 router.get('/getNotifications', requireAuth, async(req, res) =>{
-    const {before, limit} = req.query;
+    const {before} = req.query;
     const userId = req.userId;
+    const parsedLimit = parseLimitWithinRange(
+        req.query.limit,
+        NOTIFICATION_LIMIT_MIN,
+        NOTIFICATION_LIMIT_MAX,
+        NOTIFICATION_DEFAULT_LIMIT
+    );
+
+    if(parsedLimit == null){
+        return res.status(400).json({error: `limit must be between ${NOTIFICATION_LIMIT_MIN} and ${NOTIFICATION_LIMIT_MAX}`});
+    }
 
     // Fetch a generous amount from both tables, then merge and paginate
-    const fetchLimit = parseInt(limit) + 1;
+    const fetchLimit = parsedLimit + 1;
 
     let journalQuery = supabase
     .from('notifications')
-    .select(
-        `*,
-        journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count), users(name, id, image_url, badge)),
-        users!sender_id(name, user_email, image_url, id, badge),
-        constellation_id,
-        constellations!constellation_id(status, star_id_a, star_id_b)
-        `
-    )
+    .select(NOTIFICATION_JOURNAL_SELECT)
     .eq('receiver_id', userId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -283,12 +398,7 @@ router.get('/getNotifications', requireAuth, async(req, res) =>{
 
     let opinionQuery = supabase
     .from('notification_opinions')
-    .select(
-        `*,
-        opinions!opinion_id(id, opinion, user_id, created_at, users(name, id, image_url, badge)),
-        users!sender_id(name, user_email, image_url, id, badge)
-        `
-    )
+    .select(NOTIFICATION_OPINION_SELECT)
     .eq('receiver_id', userId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -318,7 +428,12 @@ router.get('/getNotifications', requireAuth, async(req, res) =>{
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     // Likes/bookmarks lookup only for journal notifications
-    const journalIds = merged.filter(n => n.source === 'journal').map(n => n.journal_id);
+    const journalIds = [...new Set(
+        merged
+            .filter((n) => n.source === 'journal')
+            .map((n) => n.journal_id)
+            .filter(Boolean)
+    )];
 
     let hasLikedResult = [];
     let hasBookMarkedResult = [];
@@ -344,8 +459,8 @@ router.get('/getNotifications', requireAuth, async(req, res) =>{
         hasBookMarked: notif.source === 'journal' ? userHasBookmarkedSet.has(notif.journal_id) : false
     }))
 
-    const hasMore = formatted.length > parseInt(limit);
-    const slicedData = hasMore ? formatted.slice(0, parseInt(limit)) : formatted;
+    const hasMore = formatted.length > parsedLimit;
+    const slicedData = hasMore ? formatted.slice(0, parsedLimit) : formatted;
 
     return res.status(200).json(
         {
@@ -378,11 +493,17 @@ router.post('/readNotification', requireAuth, async(req, res) => {
     return res.status(200).json({message: 'notification was read!'})
 })
 router.get('/getUnreadNotification', requireAuth, async(req, res) => {
-    const {limit, before} = req.query;
+    const {before} = req.query;
 
-    const parsedLimit = parseInt(limit);
-    if(isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 20){
-        return res.status(400).json({error: 'limit must be between 1 and 20'});
+    const parsedLimit = parseLimitWithinRange(
+        req.query.limit,
+        NOTIFICATION_LIMIT_MIN,
+        NOTIFICATION_LIMIT_MAX,
+        NOTIFICATION_DEFAULT_LIMIT
+    );
+
+    if(parsedLimit == null){
+        return res.status(400).json({error: `limit must be between ${NOTIFICATION_LIMIT_MIN} and ${NOTIFICATION_LIMIT_MAX}`});
     }
 
     const receiverId = req.userId;
@@ -390,11 +511,7 @@ router.get('/getUnreadNotification', requireAuth, async(req, res) => {
 
     let journalQuery = supabase
     .from('notifications')
-    .select(`
-        *,
-        journals!journal_id(title, content, created_at, likes(count), comments(count), bookmarks(count)),
-        users!sender_id(name, user_email, image_url, id, badge)
-        `)
+    .select(NOTIFICATION_JOURNAL_SELECT)
     .eq('receiver_id', receiverId)
     .eq('read', false)
     .order('created_at', {ascending: false})
@@ -403,11 +520,7 @@ router.get('/getUnreadNotification', requireAuth, async(req, res) => {
 
     let opinionQuery = supabase
     .from('notification_opinions')
-    .select(`
-        *,
-        opinions!opinion_id(id, opinion, user_id, created_at),
-        users!sender_id(name, user_email, image_url, id, badge)
-        `)
+    .select(NOTIFICATION_OPINION_SELECT)
     .eq('receiver_id', receiverId)
     .eq('read', false)
     .order('created_at', {ascending: false})
@@ -436,7 +549,12 @@ router.get('/getUnreadNotification', requireAuth, async(req, res) => {
     const merged = [...journalNotifs, ...opinionNotifs]
         .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
-    const journalIds = merged.filter(n => n.source === 'journal').map(n => n.journal_id);
+    const journalIds = [...new Set(
+        merged
+            .filter((n) => n.source === 'journal')
+            .map((n) => n.journal_id)
+            .filter(Boolean)
+    )];
 
     let hasLikedResult = [];
     let hasBookMarkedResult = [];
@@ -667,7 +785,7 @@ router.get('/getCollections', optionalAuth, async(req, res) => {
 
     let query = supabase
     .from('collections')
-    .select('*')
+    .select(COLLECTION_SELECT_COLUMNS)
     .eq('user_id', targetUserId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -710,7 +828,7 @@ router.get('/getCollectionJournals', requireAuth, async(req, res) =>{
 
     let query = supabase
     .from('collection_journal')
-    .select('id, journals(title, created_at, id,content, users(id, image_url, user_email, name), comments!post_id(count), bookmarks!journal_id(count), likes!journal_id(count))')
+    .select(COLLECTION_JOURNALS_SELECT)
     .eq('collection_id', collectionId)
     .limit(parsedLimit + 1)
     .order('id', {ascending: false})
@@ -778,7 +896,7 @@ router.get('/getNotCollectedPost', requireAuth, async(req, res) => {
     const parsedLimit = parseInt(limit);
     if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
         console.error('limit should be between 1 to 10');
-        return res.status(500).json({error: 'limit should be between 1 to 10'});
+        return res.status(400).json({error: 'limit should be between 1 to 10'});
     }
 
     if(!userId){
@@ -792,7 +910,7 @@ router.get('/getNotCollectedPost', requireAuth, async(req, res) => {
 
     let query = supabase
     .from('journals')
-    .select('*')
+    .select(NOT_COLLECTED_JOURNAL_SELECT)
     .eq('user_id', userId)
     .order('created_at', {ascending: false})
     .limit(parsedLimit + 1)
@@ -913,14 +1031,14 @@ router.get('/getOpinions', async(req, res) => {
     const {before, limit} = req.query;
 
     const paresedLimit = parseInt(limit);
-    if(isNaN(paresedLimit || paresedLimit > 20 || paresedLimit < 1)) {
+    if(isNaN(paresedLimit) || paresedLimit > 20 || paresedLimit < 1) {
         console.log('limit should be number or and it should not be between 1 - 20');
-        return res.status(400).json({error: 'limit should be number or and it should not be between 1 -10'});
+        return res.status(400).json({error: 'limit should be number and it should be between 1 - 20'});
     }
 
     let query = supabase
     .from('opinions')
-    .select('*, users(name, id, user_email, image_url, badge)')
+    .select(OPINION_LIST_SELECT)
     .is('parent_id', null)
     .order('id', {ascending: false})
     .limit(paresedLimit + 1)
@@ -946,7 +1064,7 @@ router.get('/getMyOpinions', requireAuth, async(req, res) =>{
     const {limit, before} = req.query;
     const parsedLimit = parseInt(limit);
 
-    if(isNaN(parsedLimit) || parsedLimit.length > 20 || parsedLimit.length < 1){
+    if(isNaN(parsedLimit) || parsedLimit > 20 || parsedLimit < 1){
         console.error('limit should be number and between 1 - 20');
         return res.status(400).json({error:'limit should be number and between 1 - 20'});
     }
@@ -955,7 +1073,7 @@ router.get('/getMyOpinions', requireAuth, async(req, res) =>{
 
     let query = supabase
     .from('opinions')
-    .select('*')
+    .select(MY_OPINION_SELECT)
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)
     .eq('user_id', userId)
@@ -995,7 +1113,7 @@ router.get('/getUserOpinions', async(req, res) =>{
 
     let query = supabase
     .from('opinions')
-    .select('*, users(name, user_email, image_url, id, badge)')
+    .select(USER_OPINION_SELECT)
     .limit(parsedLimit + 1)
     .eq('user_id', userId)
     .is('parent_id', null)
@@ -1076,7 +1194,7 @@ router.get('/getPostReplies/:parent_id', async(req, res) => {
 
     let query = supabase
     .from('comments')
-    .select('*, users(name, image_url, id, user_email, badge)')
+    .select(COMMENT_REPLY_SELECT)
     .eq('parent_id', parent_id)
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)

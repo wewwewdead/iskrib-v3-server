@@ -1,5 +1,20 @@
 import supabase from "./supabase.js";
 
+const STORY_SELECT_COLUMNS = `
+    id,
+    author_id,
+    title,
+    description,
+    cover_url,
+    status,
+    tags,
+    privacy,
+    read_count,
+    vote_count,
+    created_at,
+    updated_at
+`;
+
 // ── Vote toggle ──
 export const toggleVoteService = async (storyId, userId) => {
     if (!storyId || !userId) {
@@ -146,7 +161,7 @@ export const getMyLibraryService = async (userId, limit, before) => {
     // Batch-fetch stories
     const { data: stories, error: storyError } = await supabase
         .from('stories')
-        .select('*')
+        .select(STORY_SELECT_COLUMNS)
         .in('id', storyIds);
 
     if (storyError) {

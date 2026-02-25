@@ -51,6 +51,7 @@ async function ensureShareFonts() {
 }
 
 const app = express();
+app.set('etag', 'weak');
 const PORT = process.env.PORT || 3000;
 const SITE_URL = SITE_URL_SHARED;
 const DEFAULT_OG_IMAGE_URL = `${SITE_URL}/assets/no-image.png`;
@@ -63,6 +64,72 @@ const SHARE_IMAGE_FETCH_USER_AGENT = 'IskrybShareBot/1.0 (+https://iskrib.com)';
 const META_FB_APP_ID = (process.env.META_FB_APP_ID || process.env.FB_APP_ID || process.env.VITE_FB_APP_ID || '').trim();
 const SHARE_IMAGE_DEBUG = false;
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
+const PUBLIC_CACHE_CONTROL_VALUE = 'public, max-age=10, s-maxage=10, stale-while-revalidate=30';
+const PRIVATE_NO_STORE_CACHE_CONTROL = 'private, no-store';
+const METRICS_TOKEN = (process.env.METRICS_TOKEN || '').trim();
+const METRICS_ROUTE_LIMIT = 200;
+const CACHEABLE_PUBLIC_ROUTE_PATTERNS = [
+    /^\/journals$/,
+    /^\/journals\/hottest-monthly$/,
+    /^\/journals\/canvas\/gallery$/,
+    /^\/journals\/search$/,
+    /^\/users\/search$/,
+    /^\/journal\/[^/]+$/,
+    /^\/sitemap-posts\.xml$/,
+    /^\/sitemap-profiles\.xml$/,
+    /^\/sitemap-index\.xml$/,
+];
+
+const metricsState = {
+    startedAt: new Date().toISOString(),
+    requests: 0,
+    responses: 0,
+    inFlight: 0,
+    bytesSent: 0,
+    statusBuckets: {
+        '2xx': 0,
+        '3xx': 0,
+        '4xx': 0,
+        '5xx': 0,
+        other: 0,
+    },
+    routeStats: new Map(),
+};
+
+const normalizeApiPath = (path = '') => (
+    String(path).startsWith('/api/')
+        ? String(path).slice(4)
+        : String(path)
+);
+
+const canonicalizeMetricsPath = (rawPath = '') => {
+    const normalized = normalizeApiPath(rawPath);
+    return normalized
+        .replace(/\/[0-9a-f]{8}-[0-9a-f-]{27,}(?=\/|$)/ig, '/:id')
+        .replace(/\/\d+(?=\/|$)/g, '/:id');
+};
+
+const isPersonalizedGetRequest = (req) => {
+    if (req?.headers?.authorization) {
+        return true;
+    }
+
+    const userId = String(req?.query?.userId || '').trim();
+    const loggedInUserId = String(req?.query?.loggedInUserId || '').trim();
+    return Boolean(userId || loggedInUserId);
+};
+
+const isCacheablePublicPath = (reqPath = '') => (
+    CACHEABLE_PUBLIC_ROUTE_PATTERNS.some((pattern) => pattern.test(reqPath))
+);
+
+const classifyStatusBucket = (statusCode) => {
+    if (statusCode >= 200 && statusCode < 300) return '2xx';
+    if (statusCode >= 300 && statusCode < 400) return '3xx';
+    if (statusCode >= 400 && statusCode < 500) return '4xx';
+    if (statusCode >= 500 && statusCode < 600) return '5xx';
+    return 'other';
+};
 
 const normalizeWhitespace = (value) => String(value ?? '')
     .replace(/\s+/g, ' ')
@@ -471,14 +538,88 @@ app.use(
 );
 
 app.use((req, res, next) => {
-    if (req.method === "GET" && !req.headers.authorization) {
-        // no-cache: browser must revalidate with server before using cached response.
-        // This prevents stale data after mutations (likes, comments, replies, etc.)
-        // while still allowing conditional requests (304 Not Modified) for performance.
-        // React Query handles client-side caching, so browser cache is unnecessary.
-        res.set("Cache-Control", "no-cache");
-    }
+    metricsState.requests += 1;
+    metricsState.inFlight += 1;
+
+    const startNs = process.hrtime.bigint();
+    let byteCount = 0;
+
+    const originalWrite = res.write.bind(res);
+    const originalEnd = res.end.bind(res);
+
+    res.write = (chunk, encoding, callback) => {
+        if (chunk) {
+            byteCount += Buffer.isBuffer(chunk)
+                ? chunk.length
+                : Buffer.byteLength(chunk, typeof encoding === 'string' ? encoding : 'utf8');
+        }
+        return originalWrite(chunk, encoding, callback);
+    };
+
+    res.end = (chunk, encoding, callback) => {
+        if (chunk) {
+            byteCount += Buffer.isBuffer(chunk)
+                ? chunk.length
+                : Buffer.byteLength(chunk, typeof encoding === 'string' ? encoding : 'utf8');
+        }
+        return originalEnd(chunk, encoding, callback);
+    };
+
+    res.on('finish', () => {
+        metricsState.inFlight = Math.max(0, metricsState.inFlight - 1);
+        metricsState.responses += 1;
+        metricsState.bytesSent += byteCount;
+
+        const statusBucket = classifyStatusBucket(res.statusCode);
+        metricsState.statusBuckets[statusBucket] += 1;
+
+        const durationMs = Number(process.hrtime.bigint() - startNs) / 1_000_000;
+        const routeTemplate = req.route?.path
+            ? `${req.baseUrl || ''}${req.route.path}`
+            : req.path;
+        const routeKey = `${req.method} ${canonicalizeMetricsPath(routeTemplate)}`;
+
+        let routeStat = metricsState.routeStats.get(routeKey);
+        if (!routeStat) {
+            if (metricsState.routeStats.size >= METRICS_ROUTE_LIMIT) {
+                return;
+            }
+
+            routeStat = {
+                count: 0,
+                totalDurationMs: 0,
+                maxDurationMs: 0,
+                bytesSent: 0,
+                statusBuckets: { '2xx': 0, '3xx': 0, '4xx': 0, '5xx': 0, other: 0 },
+            };
+            metricsState.routeStats.set(routeKey, routeStat);
+        }
+
+        routeStat.count += 1;
+        routeStat.totalDurationMs += durationMs;
+        routeStat.maxDurationMs = Math.max(routeStat.maxDurationMs, durationMs);
+        routeStat.bytesSent += byteCount;
+        routeStat.statusBuckets[statusBucket] += 1;
+    });
+
     next();
+});
+
+app.use((req, res, next) => {
+    if (req.method !== "GET") {
+        return next();
+    }
+
+    const normalizedPath = normalizeApiPath(req.path);
+    const isPersonalized = isPersonalizedGetRequest(req);
+
+    if (!isPersonalized && isCacheablePublicPath(normalizedPath)) {
+        res.set("Cache-Control", PUBLIC_CACHE_CONTROL_VALUE);
+    } else if (isPersonalized) {
+        res.set("Cache-Control", PRIVATE_NO_STORE_CACHE_CONTROL);
+    }
+
+    return next();
 });
 
 app.use(express.json({ limit: "2mb" }));
@@ -825,6 +966,64 @@ app.get('/api/share/u/:username/image', (req, res) => {
 app.get('/api/share/u/:username', (req, res) => {
     res.redirect(301, `/share/u/${req.params.username}`);
 });
+
+const buildHealthPayload = () => ({
+    status: 'ok',
+    uptimeSeconds: Math.round(process.uptime()),
+    startedAt: metricsState.startedAt,
+    now: new Date().toISOString(),
+});
+
+const isMetricsAuthorized = (req) => {
+    if (!METRICS_TOKEN) {
+        return true;
+    }
+
+    const providedToken = String(req.headers['x-metrics-token'] || '').trim();
+    return Boolean(providedToken && providedToken === METRICS_TOKEN);
+};
+
+const buildMetricsPayload = () => {
+    const routeStats = Array.from(metricsState.routeStats.entries())
+        .map(([route, stat]) => ({
+            route,
+            count: stat.count,
+            avgDurationMs: stat.count > 0 ? Number((stat.totalDurationMs / stat.count).toFixed(2)) : 0,
+            maxDurationMs: Number(stat.maxDurationMs.toFixed(2)),
+            bytesSent: stat.bytesSent,
+            statusBuckets: stat.statusBuckets,
+        }))
+        .sort((a, b) => b.count - a.count);
+
+    return {
+        startedAt: metricsState.startedAt,
+        requests: metricsState.requests,
+        responses: metricsState.responses,
+        inFlight: metricsState.inFlight,
+        bytesSent: metricsState.bytesSent,
+        statusBuckets: metricsState.statusBuckets,
+        routeStats: routeStats,
+    };
+};
+
+const sendHealth = (_req, res) => {
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json(buildHealthPayload());
+};
+
+const sendMetrics = (req, res) => {
+    if (!isMetricsAuthorized(req)) {
+        return res.status(403).json({ error: 'forbidden' });
+    }
+
+    res.set('Cache-Control', 'no-store');
+    return res.status(200).json(buildMetricsPayload());
+};
+
+app.get('/health', sendHealth);
+app.get('/api/health', sendHealth);
+app.get('/metrics', sendMetrics);
+app.get('/api/metrics', sendMetrics);
 
 app.use('/api', sitemapRouter);
 app.use('/api', router);
