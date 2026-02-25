@@ -15,7 +15,9 @@ const UNIVERSE_STAR_PULL_LIMIT = 500;
 const UNIVERSE_POST_SELECT = `
     id,
     title,
+    content,
     post_type,
+    canvas_doc,
     created_at,
     universe_x,
     universe_y,
@@ -111,7 +113,7 @@ const attachRepostSources = async (journals) => {
 
     const { data: sources, error } = await supabase
         .from('journals')
-        .select('id, title, post_type, created_at, users(id, name, image_url, badge)')
+        .select('id, title, content, post_type, canvas_doc, created_at, users(id, name, image_url, badge)')
         .in('id', sourceIds);
 
     if (error) {
@@ -1284,7 +1286,7 @@ export const getBookmarksService = async(userId, before, limit) => {
     .from('bookmarks')
     .select(`id, created_at, journal_id,
         journals(
-        id, created_at, user_id, title, post_type,
+        id, created_at, user_id, content, title, post_type,
         comment_count: comments(count),
         bookmark_count: bookmarks(count),
 

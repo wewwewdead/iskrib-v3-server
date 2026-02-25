@@ -1,3 +1,5 @@
+import cluster from "node:cluster";
+import os from "node:os";
 import express from "express";
 import cors from 'cors';
 import compression from "compression";
@@ -12,6 +14,25 @@ import sitemapRouter from "./routes/sitemapRoutes.js";
 import supabase from "./services/supabase.js";
 import { SITE_URL as SITE_URL_SHARED, makePostUrl as makePostUrlShared } from "./utils/urlUtils.js";
 import { getUserByUsernameService } from "./services/getUserDataService.js";
+
+// ── Cluster mode: fork one worker per CPU core ──
+// Set CLUSTER_ENABLED=true in production to use all CPU cores.
+// Disabled by default so local dev / single-core hosts work without surprises.
+const CLUSTER_ENABLED = process.env.CLUSTER_ENABLED === 'true';
+const WORKER_COUNT = parseInt(process.env.WORKER_COUNT, 10) || os.cpus().length;
+
+if (CLUSTER_ENABLED && cluster.isPrimary) {
+    console.log(`Primary ${process.pid} starting ${WORKER_COUNT} workers...`);
+    for (let i = 0; i < WORKER_COUNT; i++) {
+        cluster.fork();
+    }
+    cluster.on('exit', (worker, code, signal) => {
+        console.warn(`Worker ${worker.process.pid} exited (code=${code}, signal=${signal}). Restarting...`);
+        cluster.fork();
+    });
+    // Primary does nothing else — workers handle all requests
+} else {
+// ── Worker (or non-clustered) process: run Express ──
 
 // ── Bundled font setup for Sharp/librsvg SVG text rendering ──
 const __filename = fileURLToPath(import.meta.url);
@@ -1044,5 +1065,7 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, () =>{
-    console.log(`server is running at port${PORT}`)
+    const workerInfo = CLUSTER_ENABLED ? ` (worker ${process.pid})` : '';
+    console.log(`server is running at port${PORT}${workerInfo}`)
 })
+} // end of cluster worker / non-clustered block
