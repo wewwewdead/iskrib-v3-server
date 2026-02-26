@@ -252,7 +252,8 @@ export const uploadJournalContentService = async(
     postType = POST_TYPE_TEXT,
     canvasDocInput = null,
     remixSourceJournalId = null,
-    isRemix = false
+    isRemix = false,
+    promptId = null
 ) =>{
     if(!userId){
         console.error('userId is undefined');
@@ -338,6 +339,12 @@ export const uploadJournalContentService = async(
     if(shouldSaveRemixMetadata){
         insertPayload.remix_source_journal_id = remixSourceJournalId.trim();
     }
+    if(promptId){
+        const parsedPromptId = parseInt(promptId, 10);
+        if(!isNaN(parsedPromptId)){
+            insertPayload.prompt_id = parsedPromptId;
+        }
+    }
 
     try {
         const {count: postCount} = await supabase
@@ -383,6 +390,16 @@ export const uploadJournalContentService = async(
         );
     } catch (settleErr) {
         console.error('non-fatal: incremental settle failed:', settleErr?.message || settleErr);
+    }
+
+    // Non-fatal: record publish for writing streak
+    try {
+        const { recordPublishForStreak } = await import('./streakService.js');
+        recordPublishForStreak(userId).catch(err =>
+            console.error('non-fatal: streak record failed:', err?.message || err)
+        );
+    } catch (streakErr) {
+        console.error('non-fatal: streak record failed:', streakErr?.message || streakErr);
     }
 
     return true;

@@ -17,6 +17,11 @@ import { requestConstellationController, respondConstellationController, getView
 import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
 import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
 import { toggleVoteController, toggleLibraryController, getMyLibraryController, getCommentsController as getStoryCommentsController, getCommentCountsController, addCommentController as addStoryCommentController, saveProgressController, getProgressController } from "../controller/storyInteractController.js";
+import { getRelatedPostsController } from "../controller/discoveryController.js";
+import { getStreakService, recordPublishForStreak } from "../services/streakService.js";
+import { getTodaysPromptController, getPromptResponsesController } from "../controller/promptController.js";
+import { toggleReactionController, getPostReactionsController } from "../controller/reactionController.js";
+import { getWeeklyRecapController } from "../controller/recapController.js";
 
 const router = express.Router();
 
@@ -92,6 +97,7 @@ const NOTIFICATION_JOURNAL_SELECT = `
     journal_id,
     repost_journal_id,
     type,
+    reaction_type,
     read,
     created_at,
     constellation_id,
@@ -261,6 +267,7 @@ router.get('/journals/hottest-monthly', getMonthlyHottestJournalsController);
 router.get('/journals/canvas/gallery', getCanvasGalleryController);
 router.get('/journals/search', searchJournalsController);
 router.get('/users/search', searchUsersController);
+router.get('/journal/:journalId/related', getRelatedPostsController);
 router.get('/journal/:journalId', getJournalByIdController);
 router.get('/universe/posts', getUniversePostsController);
 
@@ -1024,6 +1031,15 @@ router.post('/addOpinion', requireAuth, upload, async(req, res) =>{
         return res.status(500).json({error: 'supabase error'})
     }
 
+    // Non-fatal: record publish for writing streak
+    try {
+        recordPublishForStreak(userId).catch(err =>
+            console.error('non-fatal: streak record failed:', err?.message || err)
+        );
+    } catch (streakErr) {
+        console.error('non-fatal: streak record failed:', streakErr?.message || streakErr);
+    }
+
     return res.status(200).json({message: 'success'});
 })
 
@@ -1338,5 +1354,29 @@ router.get('/chapters/:chapterId/comment-counts', optionalAuth, getCommentCounts
 router.post('/chapters/:chapterId/comments', requireAuth, addStoryCommentController);
 router.post('/stories/:storyId/progress', requireAuth, saveProgressController);
 router.get('/stories/:storyId/progress', requireAuth, getProgressController);
+
+// ─── Reactions ───
+router.post('/reaction', requireAuth, toggleReactionController);
+router.get('/reactions/:journalId', getPostReactionsController);
+
+// ─── Daily Prompts ───
+router.get('/prompt/today', getTodaysPromptController);
+router.get('/prompt/:promptId/responses', getPromptResponsesController);
+
+// ─── Weekly Recap ───
+router.get('/recap/weekly', requireAuth, getWeeklyRecapController);
+
+// ─── Streaks ───
+router.get('/streak/:userId', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        if (!userId) return res.status(400).json({ error: 'userId is required' });
+        const streakData = await getStreakService(userId);
+        return res.status(200).json(streakData);
+    } catch (err) {
+        console.error('error getting streak:', err);
+        return res.status(500).json({ error: 'failed to get streak' });
+    }
+});
 
 export default router;

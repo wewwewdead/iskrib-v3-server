@@ -46,11 +46,13 @@ const JOURNAL_BASE_SELECT = `
     is_repost,
     repost_source_journal_id,
     repost_caption,
+    prompt_id,
     users(${JOURNAL_USER_SELECT})
 `;
 const JOURNAL_WITH_COUNTS_SELECT = `
     ${JOURNAL_BASE_SELECT},
     like_count: likes(count),
+    reaction_count: reactions(count),
     comment_count: comments(count),
     bookmark_count: bookmarks(count)
 `;
@@ -66,11 +68,13 @@ const JOURNAL_METADATA_SELECT = `
     is_repost,
     repost_source_journal_id,
     repost_caption,
+    prompt_id,
     users(${JOURNAL_USER_SELECT})
 `;
 const JOURNAL_METADATA_WITH_COUNTS_SELECT = `
     ${JOURNAL_METADATA_SELECT},
     like_count: likes(count),
+    reaction_count: reactions(count),
     comment_count: comments(count),
     bookmark_count: bookmarks(count)
 `;
@@ -324,13 +328,14 @@ const attachUserInteractionFlags = async (journals, userId) => {
         return journals.map((journal) => ({
             ...journal,
             has_liked: false,
-            has_bookmarked: false
+            has_bookmarked: false,
+            user_reaction: null
         }));
     }
 
     const journalIds = journals.map((journal) => journal.id);
 
-    const [userLikes, userBookmarks] = await Promise.all([
+    const [userLikes, userBookmarks, userReactions] = await Promise.all([
         supabase
             .from('likes')
             .select('journal_id')
@@ -340,11 +345,17 @@ const attachUserInteractionFlags = async (journals, userId) => {
             .from('bookmarks')
             .select('journal_id')
             .in('journal_id', journalIds)
+            .eq('user_id', userId),
+        supabase
+            .from('reactions')
+            .select('journal_id, reaction_type')
+            .in('journal_id', journalIds)
             .eq('user_id', userId)
     ]);
 
     const {data: userLikesResult, error: errorUserLikeResult} = userLikes;
     const {data: userBookmarksResult, error: errorUserBookmarksResult} = userBookmarks;
+    const {data: userReactionsResult} = userReactions;
 
     if(errorUserLikeResult || errorUserBookmarksResult){
         console.error('supabase error while fetching journal interactions:', errorUserLikeResult?.message || errorUserBookmarksResult?.message);
@@ -353,11 +364,13 @@ const attachUserInteractionFlags = async (journals, userId) => {
 
     const userHasLikedSet = new Set(userLikesResult?.map((journal) => journal.journal_id) || []);
     const userHasBookmarkedSet = new Set(userBookmarksResult?.map((journal) => journal.journal_id) || []);
+    const userReactionMap = new Map((userReactionsResult || []).map((r) => [r.journal_id, r.reaction_type]));
 
     return journals.map((journal) => ({
         ...journal,
         has_liked: userHasLikedSet.has(journal.id),
-        has_bookmarked: userHasBookmarkedSet.has(journal.id)
+        has_bookmarked: userHasBookmarkedSet.has(journal.id),
+        user_reaction: userReactionMap.get(journal.id) || null
     }));
 };
 
@@ -739,15 +752,16 @@ export const getJournalsService = async(limit, userId, before) => {
         return journalData
     }
 
-    // If userId is provided, fetch personalization (likes/bookmarks)
-    // Otherwise return journals with has_liked/has_bookmarked defaulting to false
+    // If userId is provided, fetch personalization (likes/bookmarks/reactions)
+    // Otherwise return journals with has_liked/has_bookmarked/user_reaction defaulting to false/null
     let userHasLikedSet = new Set();
     let userHasBookmarkedSet = new Set();
+    let userReactionMap = new Map();
 
     if(userId){
         const journalIds = data.map((journal) => journal.id);
 
-        const [userLikes, userBookmarks] = await Promise.all([
+        const [userLikes, userBookmarks, userReactions] = await Promise.all([
             supabase
             .from('likes')
             .select('journal_id')
@@ -758,11 +772,18 @@ export const getJournalsService = async(limit, userId, before) => {
             .from('bookmarks')
             .select('journal_id')
             .in('journal_id', journalIds)
+            .eq('user_id', userId),
+
+            supabase
+            .from('reactions')
+            .select('journal_id, reaction_type')
+            .in('journal_id', journalIds)
             .eq('user_id', userId)
         ]);
 
         const {data: userLikesResult, error: errorUserLikeResult} = userLikes;
         const {data: userBookmarksResult, error: errorUserBookmarksResult} = userBookmarks;
+        const {data: userReactionsResult} = userReactions;
 
         if(errorUserLikeResult || errorUserBookmarksResult) {
             console.error('supabase error:', errorUserLikeResult?.message || errorUserBookmarksResult?.message);
@@ -771,6 +792,7 @@ export const getJournalsService = async(limit, userId, before) => {
 
         userHasLikedSet = new Set(userLikesResult?.map((j) => j.journal_id) || []);
         userHasBookmarkedSet = new Set(userBookmarksResult?.map((j) => j.journal_id)|| []);
+        userReactionMap = new Map((userReactionsResult || []).map((r) => [r.journal_id, r.reaction_type]));
     }
 
     await attachRepostSources(data);
@@ -778,7 +800,8 @@ export const getJournalsService = async(limit, userId, before) => {
     const formattedData = data?.map((journal) => ({
         ...journal,
         has_liked: userHasLikedSet.has(journal.id),
-        has_bookmarked: userHasBookmarkedSet.has(journal.id)
+        has_bookmarked: userHasBookmarkedSet.has(journal.id),
+        user_reaction: userReactionMap.get(journal.id) || null
     }))
 
     const hasMore = data?.length > parsedLimit;
@@ -964,9 +987,10 @@ export const getJournalByIdService = async (journalId, userId) => {
 
     let hasLiked = false;
     let hasBookmarked = false;
+    let userReaction = null;
 
     if (userId) {
-        const [likeResult, bookmarkResult] = await Promise.all([
+        const [likeResult, bookmarkResult, reactionResult] = await Promise.all([
             supabase
                 .from('likes')
                 .select('journal_id', { count: 'exact', head: true })
@@ -976,7 +1000,13 @@ export const getJournalByIdService = async (journalId, userId) => {
                 .from('bookmarks')
                 .select('journal_id', { count: 'exact', head: true })
                 .eq('journal_id', journalId)
+                .eq('user_id', userId),
+            supabase
+                .from('reactions')
+                .select('reaction_type')
+                .eq('journal_id', journalId)
                 .eq('user_id', userId)
+                .maybeSingle()
         ]);
 
         if (likeResult.error || bookmarkResult.error) {
@@ -989,12 +1019,14 @@ export const getJournalByIdService = async (journalId, userId) => {
 
         hasLiked = (likeResult.count || 0) > 0;
         hasBookmarked = (bookmarkResult.count || 0) > 0;
+        userReaction = reactionResult.data?.reaction_type || null;
     }
 
     return {
         ...journal,
         has_liked: hasLiked,
-        has_bookmarked: hasBookmarked
+        has_bookmarked: hasBookmarked,
+        user_reaction: userReaction
     };
 }
 

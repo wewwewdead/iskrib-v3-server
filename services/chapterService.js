@@ -186,6 +186,16 @@ export const updateChapterService = async (storyId, chapterId, userId, updates) 
                 .single();
             if (!current?.published_at) {
                 updateData.published_at = new Date().toISOString();
+
+                // Non-fatal: record publish for writing streak (first publish only)
+                try {
+                    const { recordPublishForStreak } = await import('./streakService.js');
+                    recordPublishForStreak(userId).catch(err =>
+                        console.error('non-fatal: streak record failed:', err?.message || err)
+                    );
+                } catch (streakErr) {
+                    console.error('non-fatal: streak record failed:', streakErr?.message || streakErr);
+                }
             }
         }
     }
