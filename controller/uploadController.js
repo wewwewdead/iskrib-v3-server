@@ -89,8 +89,14 @@ export const uploadJournalContentController = async(req, res) =>{
     } = req.body;
     const userId = req.userId;
     try {
-        await uploadJournalContentService(content, title, userId, postType, canvasDoc, remixSourceJournalId, isRemix, promptId);
-        return res.status(200).json({message: 'Content saved successfully!'});
+        const result = await uploadJournalContentService(content, title, userId, postType, canvasDoc, remixSourceJournalId, isRemix, promptId);
+        const responsePayload = { message: 'Content saved successfully!' };
+        if (result?.streakResult?.streakData) {
+            responsePayload.streak = {
+                current_streak: result.streakResult.streakData.current_streak,
+            };
+        }
+        return res.status(200).json(responsePayload);
     } catch (error) {
         console.error('failed to upload content:', error);
         return res.status(500).json({error: 'failed to upload content!'})

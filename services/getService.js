@@ -814,6 +814,81 @@ export const getJournalsService = async(limit, userId, before) => {
     return journalData;
 }
 
+export const getFollowingFeedService = async(limit, userId, before) => {
+    if (!userId) {
+        throw { status: 401, error: 'authentication required' };
+    }
+    if (isNaN(limit) || limit > 20 || limit < 1) {
+        throw { status: 400, error: 'limit should be integer, not below 1 and higher than 20' };
+    }
+
+    const parsedLimit = parseInt(limit);
+
+    // Step 1: Fetch journals via RPC (subquery stays inside Postgres — scales to 100k+ followings)
+    const { data: rpcData, error } = await supabase.rpc('get_following_feed', {
+        p_user_id: userId,
+        p_limit: parsedLimit + 1,
+        p_before: before || null
+    });
+
+    if (error) {
+        console.error('supabase error fetching following feed:', error.message);
+        throw { status: 500, error: 'supabase error fetching following feed' };
+    }
+
+    if (!rpcData || rpcData.length === 0) {
+        return { data: [], hasMore: false };
+    }
+
+    // Reshape RPC rows to match PostgREST format the client expects
+    const data = rpcData.map(row => ({
+        id: row.id,
+        user_id: row.user_id,
+        title: row.title,
+        content: row.content,
+        post_type: row.post_type,
+        canvas_doc: row.canvas_doc,
+        created_at: row.created_at,
+        privacy: row.privacy,
+        views: row.views,
+        is_repost: row.is_repost,
+        repost_source_journal_id: row.repost_source_journal_id,
+        repost_caption: row.repost_caption,
+        prompt_id: row.prompt_id,
+        users: { id: row.user_obj_id, name: row.user_name, image_url: row.user_image_url, badge: row.user_badge },
+        like_count: [{ count: Number(row.like_count) }],
+        reaction_count: [{ count: Number(row.reaction_count) }],
+        comment_count: [{ count: Number(row.comment_count) }],
+        bookmark_count: [{ count: Number(row.bookmark_count) }]
+    }));
+
+    // Step 2: Personalization (same pattern as getJournalsService — operates on small result set)
+    const journalIds = data.map(j => j.id);
+    const [userLikes, userBookmarks, userReactions] = await Promise.all([
+        supabase.from('likes').select('journal_id').in('journal_id', journalIds).eq('user_id', userId),
+        supabase.from('bookmarks').select('journal_id').in('journal_id', journalIds).eq('user_id', userId),
+        supabase.from('reactions').select('journal_id, reaction_type').in('journal_id', journalIds).eq('user_id', userId)
+    ]);
+
+    const userHasLikedSet = new Set(userLikes.data?.map(j => j.journal_id) || []);
+    const userHasBookmarkedSet = new Set(userBookmarks.data?.map(j => j.journal_id) || []);
+    const userReactionMap = new Map((userReactions.data || []).map(r => [r.journal_id, r.reaction_type]));
+
+    await attachRepostSources(data);
+
+    const formattedData = data.map(journal => ({
+        ...journal,
+        has_liked: userHasLikedSet.has(journal.id),
+        has_bookmarked: userHasBookmarkedSet.has(journal.id),
+        user_reaction: userReactionMap.get(journal.id) || null
+    }));
+
+    const hasMore = data.length > parsedLimit;
+    const slicedData = hasMore ? formattedData.slice(0, parsedLimit) : formattedData;
+
+    return { data: slicedData, hasMore };
+}
+
 export const getMonthlyHottestJournalsService = async(limit, userId) => {
     if(isNaN(limit) || limit < 1 || limit > 10){
         throw {status: 400, error: 'limit should be an integer between 1 and 10'};
@@ -1073,6 +1148,7 @@ export const getUserJournalsService = async(limit, before, userId) =>{
 
     let userLikesPromise;
     let userBookmarksPromise;
+    let userReactionsPromise;
     if(journalIds){
         userLikesPromise = supabase
         .from('likes')
@@ -1085,27 +1161,36 @@ export const getUserJournalsService = async(limit, before, userId) =>{
         .select('journal_id')
         .in('journal_id', journalIds)
         .eq('user_id', userId)
+
+        userReactionsPromise = supabase
+        .from('reactions')
+        .select('journal_id, reaction_type')
+        .in('journal_id', journalIds)
+        .eq('user_id', userId)
     }
 
-    const [userLikesResult, userBookmarksResult] = await Promise.all([
-        userLikesPromise, userBookmarksPromise
+    const [userLikesResult, userBookmarksResult, userReactionsResult] = await Promise.all([
+        userLikesPromise, userBookmarksPromise, userReactionsPromise
     ])
-    
+
     const {data: userLikes, error: errorUserLikeResult} = userLikesResult;
     const {data: userBookmarks, error: errorBookmarksResult} = userBookmarksResult;
+    const {data: userReactions, error: errorReactionsResult} = userReactionsResult;
 
-    if(errorBookmarksResult || errorUserLikeResult){
-        console.error('supabase error:', errorBookmarksResult.message || errorUserLikeResult.message);
+    if(errorBookmarksResult || errorUserLikeResult || errorReactionsResult){
+        console.error('supabase error:', errorBookmarksResult?.message || errorUserLikeResult?.message || errorReactionsResult?.message);
         return {status: 500, error: 'supabase error while fetching userlikes or userbookmarks'}
     }
 
     const userLikesSet = new Set(userLikes?.map((j) => j.journal_id) || []);
     const userBookmarksSet = new Set(userBookmarks?.map((j) => j.journal_id) || []);
+    const userReactionMap = new Map((userReactions || []).map((r) => [r.journal_id, r.reaction_type]));
 
     const formattedData = journals?.map((journal) => ({
-        ...journal, 
+        ...journal,
         has_liked: userLikesSet.has(journal.id),
-        has_bookmarked: userBookmarksSet.has(journal.id)
+        has_bookmarked: userBookmarksSet.has(journal.id),
+        user_reaction: userReactionMap.get(journal.id) || null
     }))
 
     const hasMore = journals.length > parsedLimit;
@@ -1159,6 +1244,7 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
 
     let userLikesPromise;
     let userBookmarksPromise;
+    let userReactionsPromise;
 
     if(journalIds){
         userLikesPromise = supabase
@@ -1172,27 +1258,36 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
         .select('journal_id')
         .in('journal_id', journalIds)
         .eq('user_id', loggedInUserId)
+
+        userReactionsPromise = supabase
+        .from('reactions')
+        .select('journal_id, reaction_type')
+        .in('journal_id', journalIds)
+        .eq('user_id', loggedInUserId)
     }
 
-    const [userLikes, userBookmarks] = await Promise.all([
-        userLikesPromise, userBookmarksPromise
+    const [userLikes, userBookmarks, userReactions] = await Promise.all([
+        userLikesPromise, userBookmarksPromise, userReactionsPromise
     ])
 
     const {data: userLikesResult, error: errorUserLikeResult} = userLikes;
     const {data: userBookmarksResult, error: errorBookmarksResult} = userBookmarks;
+    const {data: userReactionsResult, error: errorReactionsResult} = userReactions;
 
-    if(errorUserLikeResult || errorBookmarksResult){
-        console.error('supabase error while fetching user journals:', errorBookmarksResult.message || errorUserLikeResult.message);
+    if(errorUserLikeResult || errorBookmarksResult || errorReactionsResult){
+        console.error('supabase error while fetching user journals:', errorBookmarksResult?.message || errorUserLikeResult?.message || errorReactionsResult?.message);
         return {status: 500, error: 'supabase error while fetching user journals'};
     }
 
     const userLikesSet = new Set(userLikesResult?.map((x) => x.journal_id) || [])
     const userBookmarksSet = new Set(userBookmarksResult?.map((y) => y.journal_id) || []);
+    const userReactionMap = new Map((userReactionsResult || []).map((r) => [r.journal_id, r.reaction_type]));
 
     const formattedData = journals?.map((j) => ({
-        ...j, 
+        ...j,
         has_liked: userLikesSet.has(j.id),
-        has_bookmarked: userBookmarksSet.has(j.id)
+        has_bookmarked: userBookmarksSet.has(j.id),
+        user_reaction: userReactionMap.get(j.id) || null
     }))
 
     const hasMore = journals?.length > parsedLimit;

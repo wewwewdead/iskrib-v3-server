@@ -58,6 +58,7 @@ BEGIN
             SELECT jsonb_build_object(
                 'user_id', u.id,
                 'name', u.name,
+                'username', u.username,
                 'avatar', u.image_url,
                 'post_count', COUNT(*)::INT
             )
@@ -66,7 +67,7 @@ BEGIN
             WHERE j2.created_at >= p_week_start
               AND j2.created_at < v_week_end
               AND j2.privacy = 'public'
-            GROUP BY u.id, u.name, u.image_url
+            GROUP BY u.id, u.name, u.username, u.image_url
             ORDER BY COUNT(*) DESC
             LIMIT 1
         ),

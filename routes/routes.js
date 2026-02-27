@@ -9,7 +9,7 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCanvasGalleryController, getCommentsController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUniversePostsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
+import { getBookmarksController, getCanvasGalleryController, getCommentsController, getFollowingFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUniversePostsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
 import { createCanvasRemixController } from "../controller/canvasController.js";
 import { clearMyFreedomWallDoodlesController, createFreedomWallItemController, deleteFreedomWallItemController, getCurrentFreedomWallWeekController, getFreedomWallItemsController, getFreedomWallStickersController, getFreedomWallWeeksController, reportFreedomWallItemController, updateFreedomWallItemController } from "../controller/freedomWallController.js";
@@ -262,6 +262,7 @@ router.post('/update-journal', requireAuth, upload, updateJournalController);
 
 router.post('/update-repost-caption', requireAuth, updateRepostCaptionController);
 
+router.get('/journals/following', requireAuth, getFollowingFeedController);
 router.get('/journals', getJournalsController);
 router.get('/journals/hottest-monthly', getMonthlyHottestJournalsController);
 router.get('/journals/canvas/gallery', getCanvasGalleryController);
@@ -1071,7 +1072,7 @@ router.get('/getOpinions', async(req, res) => {
     }
 
     const hasMore = opinions?.length > paresedLimit;
-    const slicedData =  hasMore ? opinions.splice(0, paresedLimit) : opinions;
+    const slicedData =  hasMore ? opinions.slice(0, paresedLimit) : opinions;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
@@ -1107,7 +1108,7 @@ router.get('/getMyOpinions', requireAuth, async(req, res) =>{
     }
 
     const hasMore = opinionsData.length > parsedLimit;
-    const slicedData = hasMore ? opinionsData.splice(0, parsedLimit) : opinionsData;
+    const slicedData = hasMore ? opinionsData.slice(0, parsedLimit) : opinionsData;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore});
     
@@ -1147,7 +1148,7 @@ router.get('/getUserOpinions', async(req, res) =>{
     }
 
     const hasMore = opinionsData.length > parsedLimit;
-    const slicedData = hasMore ? opinionsData.splice(0, parsedLimit) : opinionsData;
+    const slicedData = hasMore ? opinionsData.slice(0, parsedLimit) : opinionsData;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
@@ -1227,7 +1228,7 @@ router.get('/getPostReplies/:parent_id', async(req, res) => {
     }
 
     const hasMore = getPostReplies.length > parsedLimit;
-    const slicedData = hasMore ? getPostReplies.splice(0, parsedLimit) : getPostReplies;
+    const slicedData = hasMore ? getPostReplies.slice(0, parsedLimit) : getPostReplies;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })

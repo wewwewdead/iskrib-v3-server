@@ -407,6 +407,18 @@ export const addFollowsService = async(followerId, followingId) => {
             throw {status: 500, error: 'supabase error while inserting follow data:'}
         }
 
+        // Create follow notification (skip if self-follow)
+        if (followerId !== followingId) {
+            await supabase
+                .from('notifications')
+                .insert({
+                    sender_id: followerId,
+                    receiver_id: followingId,
+                    type: 'follow',
+                    read: false
+                });
+        }
+
         return {message: 'success'};
     }
 }

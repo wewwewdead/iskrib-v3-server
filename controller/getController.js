@@ -1,4 +1,4 @@
-import { getBookmarksService, getCanvasGalleryService, getCommentsService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUniversePostsService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService, searchUsersService } from "../services/getService.js";
+import { getBookmarksService, getCanvasGalleryService, getCommentsService, getFollowingFeedService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUniversePostsService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService, searchUsersService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -128,6 +128,20 @@ export const searchUsersController = async(req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(error?.status || 500).json({error: error?.error || 'failed to search users'});
+    }
+}
+
+export const getFollowingFeedController = async(req, res) => {
+    const { limit = 5, before } = req.query;
+    const userId = req.userId;
+
+    try {
+        const journalData = await getFollowingFeedService(limit, userId, before);
+        return res.status(200).json(journalData);
+    } catch (error) {
+        console.error(error);
+        const status = error?.status || 500;
+        return res.status(status).json({ error: error?.error || 'failed to fetch following feed' });
     }
 }
 

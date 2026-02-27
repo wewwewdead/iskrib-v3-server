@@ -105,6 +105,7 @@ export const recordPublishForStreak = async (userId) => {
     let newStreak = existing.current_streak;
     let freezeAvailable = existing.freeze_available;
     let freezeUsedDate = existing.freeze_used_date;
+    let freezeUsed = false;
 
     if (gap === 1) {
         // Consecutive day
@@ -114,6 +115,7 @@ export const recordPublishForStreak = async (userId) => {
         newStreak += 1;
         freezeAvailable = false;
         freezeUsedDate = today;
+        freezeUsed = true;
     } else {
         // Streak broken
         newStreak = 1;
@@ -155,6 +157,7 @@ export const recordPublishForStreak = async (userId) => {
     return {
         streakData: { ...existing, ...updatePayload },
         milestone,
+        freezeUsed,
     };
 };
 

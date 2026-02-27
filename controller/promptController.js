@@ -19,7 +19,12 @@ export const getPromptResponsesController = async (req, res) => {
         if (!promptId) {
             return res.status(400).json({ error: 'promptId is required' });
         }
-        const result = await getPromptResponsesService(parseInt(promptId, 10));
+        const { limit, before } = req.query;
+        const result = await getPromptResponsesService(
+            parseInt(promptId, 10),
+            limit,
+            before || null
+        );
         return res.status(200).json(result);
     } catch (err) {
         console.error('error in getPromptResponsesController:', err);

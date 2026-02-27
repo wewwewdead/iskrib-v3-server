@@ -41,10 +41,12 @@ export const getTodaysPromptService = async () => {
 /**
  * Get journals that responded to a specific prompt.
  */
-export const getPromptResponsesService = async (promptId, limit = 10) => {
+export const getPromptResponsesService = async (promptId, limit = 5, before = null) => {
     if (!promptId) return { responses: [], count: 0 };
 
-    const { data, error, count } = await supabase
+    const parsedLimit = Math.min(Math.max(parseInt(limit, 10) || 5, 1), 50);
+
+    let query = supabase
         .from('journals')
         .select(`
             id,
@@ -52,16 +54,38 @@ export const getPromptResponsesService = async (promptId, limit = 10) => {
             created_at,
             user_id,
             users(id, name, image_url, badge)
-        `, { count: 'exact' })
+        `, { count: !before ? 'exact' : undefined })
         .eq('prompt_id', promptId)
         .eq('privacy', 'public')
         .order('created_at', { ascending: false })
-        .limit(limit);
+        .order('id', { ascending: false })
+        .limit(parsedLimit + 1);
+
+    if (before) {
+        query = query.lt('created_at', before);
+    }
+
+    const { data, error, count } = await query;
 
     if (error) {
         console.error('error fetching prompt responses:', error.message);
         return { responses: [], count: 0 };
     }
 
-    return { responses: data || [], count: count || 0 };
+    const hasMore = (data || []).length > parsedLimit;
+    const responses = hasMore ? data.slice(0, parsedLimit) : (data || []);
+
+    const result = { responses, hasMore };
+    if (!before) {
+        result.count = count || 0;
+
+        const { data: userIds } = await supabase
+            .from('journals')
+            .select('user_id')
+            .eq('prompt_id', promptId)
+            .eq('privacy', 'public');
+        result.uniqueCount = new Set((userIds || []).map(r => r.user_id)).size;
+    }
+
+    return result;
 };

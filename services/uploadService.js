@@ -84,7 +84,7 @@ const parseTextContentSafely = (content) => {
 
 export const uploadUserDataService = async(bio, name, image, userId, userEmail, username) =>{
     if(!userId){
-        throw {staus: 400, error: 'userId is undefined'};
+        throw {status: 400, error: 'userId is undefined'};
     }
     if(!name || typeof name !== 'string' || name.length > 20){
         throw {status: 400, error: 'name should be a string and not more than 20 characters'}
@@ -393,16 +393,15 @@ export const uploadJournalContentService = async(
     }
 
     // Non-fatal: record publish for writing streak
+    let streakResult = null;
     try {
         const { recordPublishForStreak } = await import('./streakService.js');
-        recordPublishForStreak(userId).catch(err =>
-            console.error('non-fatal: streak record failed:', err?.message || err)
-        );
+        streakResult = await recordPublishForStreak(userId);
     } catch (streakErr) {
         console.error('non-fatal: streak record failed:', streakErr?.message || streakErr);
     }
 
-    return true;
+    return { success: true, streakResult };
 }
 
 export const updateJournalService = async(content, title, journalId, userId, postType = null, canvasDocInput = null) => {
