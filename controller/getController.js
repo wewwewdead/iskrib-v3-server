@@ -52,10 +52,10 @@ export const getViewOpinionController = async(req, res) =>{
 }
 
 export const getCommentsController = async(req, res) =>{
-    const {postId, limit = 10, before} = req.query;
+    const {postId, parentId, limit = 10, before} = req.query;
 
     try {
-        const response = await getCommentsService(postId, limit, before);
+        const response = await getCommentsService(postId, limit, before, parentId);
         return res.status(200).json(response);
     } catch (error) {
         console.error(error);

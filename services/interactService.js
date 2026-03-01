@@ -86,7 +86,7 @@ export const likeService = async(journalId, receiverId, senderId) =>{
 
 }
 
-export const addCommentService = async(userId, comments, postId, receiverId) => {
+export const addCommentService = async(userId, comments, postId, receiverId, parentId) => {
     if(!comments || !postId || !receiverId){
         console.error('comments || postId || receiverId is undefined');
         throw {status: 400, error: 'comments || postId || receiverId is undefined'};
@@ -116,7 +116,8 @@ export const addCommentService = async(userId, comments, postId, receiverId) => 
         {
             comment: comments,
             post_id: postId,
-            user_id: userId
+            user_id: userId,
+            parent_id: parentId || null
         }
     )
 

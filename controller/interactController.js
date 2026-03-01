@@ -14,11 +14,11 @@ export const likeController = async(req, res) => {
 }
 
 export const addCommentController = async(req, res) =>{
-    const {comments, postId, receiverId} = req.body;
+    const {comments, postId, receiverId, parentId} = req.body;
     const userId = req.userId;
 
     try {
-        const response = await addCommentService(userId, comments, postId, receiverId);
+        const response = await addCommentService(userId, comments, postId, receiverId, parentId);
 
         return res.status(200).json(response);
     } catch (error) {

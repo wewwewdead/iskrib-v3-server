@@ -1321,7 +1321,7 @@ export const getViewOpinionService = async(postId, userId) => {
 
 }
 
-export const getCommentsService = async(postId, limit, before) => {
+export const getCommentsService = async(postId, limit, before, parentId) => {
     if(!postId){
         console.error('postId is undefined');
         throw {status:400, error: 'postId is undefined'}
@@ -1337,8 +1337,15 @@ export const getCommentsService = async(postId, limit, before) => {
     let query = supabase
         .from('comments')
         .select(COMMENT_WITH_USER_SELECT)
-        .eq('post_id', postId)
-        .is('parent_id', null)
+        .eq('post_id', postId);
+
+    if(parentId){
+        query = query.eq('parent_id', parentId);
+    } else {
+        query = query.is('parent_id', null);
+    }
+
+    query = query
         .order('created_at', {ascending: false})
         .order('id', {ascending: false})
         .limit(parseInt(limit) + 1) //peek ahead +1, get 1 more data if the data in the table has more than the limit
