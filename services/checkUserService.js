@@ -5,7 +5,7 @@ export const checkUserService = async(userId) =>{
     }
     const {data: userData, error: errorFetching} = await supabase
     .from('users')
-    .select('id')
+    .select('id, onboarding_completed')
     .eq('id', userId)
 
     if(errorFetching){

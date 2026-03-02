@@ -83,6 +83,36 @@ export const uploadUserDataService = async(bio, name, image, userId, userEmail, 
     return true;
 }
 
+export const completeOnboardingService = async(userId, writingInterests, writingGoal) => {
+    if(!userId){
+        throw {status: 400, error: 'userId is undefined'};
+    }
+
+    const payload = {
+        onboarding_completed: true,
+        onboarding_completed_at: new Date().toISOString(),
+    };
+
+    if(Array.isArray(writingInterests)){
+        payload.writing_interests = writingInterests.filter(i => typeof i === 'string').slice(0, 16);
+    }
+    if(writingGoal && typeof writingGoal === 'string'){
+        payload.writing_goal = writingGoal;
+    }
+
+    const {error} = await supabase
+        .from('users')
+        .update(payload)
+        .eq('id', userId);
+
+    if(error){
+        console.error('supabase error completing onboarding:', error.message);
+        throw {status: 500, error: 'failed to complete onboarding'};
+    }
+
+    return true;
+}
+
 export const updateUserDataService = async(name, bio, profileBg, dominantColors, secondaryColors, profileFontColor, userId, image) =>{
     if(!userId){
         console.error('userId is undefined')

@@ -6,7 +6,7 @@ import { getUserByUsernameService } from "../services/getUserDataService.js";
 import { verfifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
-import { addReplyOpinionController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
+import { addReplyOpinionController, completeOnboardingController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
 import { getBookmarksController, getCommentsController, getFollowingFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
@@ -233,6 +233,8 @@ router.post('/save-journal', requireAuth, upload, uploadJournalContentController
 router.post('/update-journal', requireAuth, upload, updateJournalController);
 
 router.post('/update-repost-caption', requireAuth, updateRepostCaptionController);
+
+router.post('/complete-onboarding', requireAuth, completeOnboardingController);
 
 router.get('/journals/following', requireAuth, getFollowingFeedController);
 router.get('/journals', getJournalsController);
