@@ -12,7 +12,6 @@ import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaI
 import { getBookmarksController, getCanvasGalleryController, getCommentsController, getFollowingFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUniversePostsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
 import { createCanvasRemixController } from "../controller/canvasController.js";
-import { clearMyFreedomWallDoodlesController, createFreedomWallItemController, deleteFreedomWallItemController, getCurrentFreedomWallWeekController, getFreedomWallItemsController, getFreedomWallStickersController, getFreedomWallWeeksController, reportFreedomWallItemController, updateFreedomWallItemController } from "../controller/freedomWallController.js";
 import { requestConstellationController, respondConstellationController, getViewportConstellationsController, deleteConstellationController } from "../controller/constellationController.js";
 import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
 import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
@@ -289,16 +288,6 @@ router.post('/addComment', requireAuth, upload, addCommentController);
 router.get('/getComments', getCommentsController);
 
 router.post('/canvas/remix', requireAuth, createCanvasRemixController);
-
-router.get('/freedom-wall/current', optionalAuth, getCurrentFreedomWallWeekController);
-router.get('/freedom-wall/weeks', optionalAuth, getFreedomWallWeeksController);
-router.get('/freedom-wall/stickers', optionalAuth, getFreedomWallStickersController);
-router.get('/freedom-wall/:weekId/items', optionalAuth, getFreedomWallItemsController);
-router.post('/freedom-wall/items', requireAuth, createFreedomWallItemController);
-router.patch('/freedom-wall/items/:itemId', requireAuth, updateFreedomWallItemController);
-router.delete('/freedom-wall/items/:itemId', requireAuth, deleteFreedomWallItemController);
-router.post('/freedom-wall/items/:itemId/report', requireAuth, reportFreedomWallItemController);
-router.delete('/freedom-wall/:weekId/my-doodles', requireAuth, clearMyFreedomWallDoodlesController);
 
 router.post('/addBoorkmark', requireAuth, upload, addBoorkmarkController);
 
