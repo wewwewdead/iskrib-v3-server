@@ -6,15 +6,16 @@ import { getUserByUsernameService } from "../services/getUserDataService.js";
 import { verfifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
-import { addReplyOpinionController, completeOnboardingController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
+import { addReplyOpinionController, completeOnboardingController, updateInterestsController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCommentsController, getFollowingFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
+import { getBookmarksController, getCommentsController, getFollowingFeedController, getForYouFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchFollowingUsersController, searchJournalsController, searchUsersController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
 import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
 import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
 import { toggleVoteController, toggleLibraryController, getMyLibraryController, getCommentsController as getStoryCommentsController, getCommentCountsController, addCommentController as addStoryCommentController, saveProgressController, getProgressController } from "../controller/storyInteractController.js";
 import { getRelatedPostsController } from "../controller/discoveryController.js";
+import { getInterestSectionsController } from "../controller/exploreController.js";
 import { getStreakService, recordPublishForStreak } from "../services/streakService.js";
 import { getTodaysPromptController, getPromptResponsesController } from "../controller/promptController.js";
 import { toggleReactionController, getPostReactionsController } from "../controller/reactionController.js";
@@ -236,13 +237,18 @@ router.post('/update-repost-caption', requireAuth, updateRepostCaptionController
 
 router.post('/complete-onboarding', requireAuth, completeOnboardingController);
 
+router.post('/update-interests', requireAuth, updateInterestsController);
+
 router.get('/journals/following', requireAuth, getFollowingFeedController);
+router.get('/journals/for-you', requireAuth, getForYouFeedController);
 router.get('/journals', getJournalsController);
 router.get('/journals/hottest-monthly', getMonthlyHottestJournalsController);
 router.get('/journals/search', searchJournalsController);
 router.get('/users/search', searchUsersController);
+router.get('/users/following/search', requireAuth, searchFollowingUsersController);
 router.get('/journal/:journalId/related', getRelatedPostsController);
 router.get('/journal/:journalId', getJournalByIdController);
+router.get('/explore/interests', requireAuth, getInterestSectionsController);
 
 router.get('/userJournals', requireAuth, getUserJournalsController);
 router.get('/profileMedia', requireAuth, getProfileMediaController);

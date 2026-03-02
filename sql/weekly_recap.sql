@@ -21,7 +21,7 @@ BEGIN
         'total_words', COALESCE(SUM(
             GREATEST(length(COALESCE(j.content::TEXT, '')) / 5, 0)
         ), 0)::INT,
-        'reactions_received', COALESCE(SUM(j.cached_like_count), 0)::INT,
+        'reactions_received', COALESCE(SUM(j.cached_reaction_count), 0)::INT,
         'views_received', COALESCE(SUM(COALESCE(j.views, 0)), 0)::INT
     ) INTO v_personal
     FROM journals j
@@ -34,7 +34,7 @@ BEGIN
     SELECT jsonb_build_object(
         'journal_id', j.id,
         'title', j.title,
-        'reaction_count', j.cached_like_count,
+        'reaction_count', j.cached_reaction_count,
         'view_count', COALESCE(j.views, 0)
     ) INTO v_best_post
     FROM journals j
@@ -42,7 +42,7 @@ BEGIN
       AND j.created_at >= p_week_start
       AND j.created_at < v_week_end
       AND j.privacy = 'public'
-    ORDER BY j.cached_like_count DESC, COALESCE(j.views, 0) DESC
+    ORDER BY j.cached_reaction_count DESC, COALESCE(j.views, 0) DESC
     LIMIT 1;
 
     -- ── Group stats: total posts this week ──
@@ -75,7 +75,7 @@ BEGIN
             SELECT jsonb_build_object(
                 'journal_id', j3.id,
                 'title', j3.title,
-                'reaction_count', j3.cached_like_count,
+                'reaction_count', j3.cached_reaction_count,
                 'author_name', u2.name,
                 'author_avatar', u2.image_url
             )
@@ -84,7 +84,7 @@ BEGIN
             WHERE j3.created_at >= p_week_start
               AND j3.created_at < v_week_end
               AND j3.privacy = 'public'
-            ORDER BY j3.cached_like_count DESC
+            ORDER BY j3.cached_reaction_count DESC
             LIMIT 1
         )
     ) INTO v_group;

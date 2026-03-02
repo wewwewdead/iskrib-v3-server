@@ -14,6 +14,7 @@ import sitemapRouter from "./routes/sitemapRoutes.js";
 import supabase from "./services/supabase.js";
 import { SITE_URL as SITE_URL_SHARED, makePostUrl as makePostUrlShared } from "./utils/urlUtils.js";
 import { getUserByUsernameService } from "./services/getUserDataService.js";
+import { bootstrapTopicEmbeddings } from "./services/interestEmbeddingService.js";
 
 // ── Cluster mode: fork one worker per CPU core ──
 // Set CLUSTER_ENABLED=true in production to use all CPU cores.
@@ -1037,5 +1038,11 @@ app.use((err, _req, res, _next) => {
 app.listen(PORT, () =>{
     const workerInfo = CLUSTER_ENABLED ? ` (worker ${process.pid})` : '';
     console.log(`server is running at port${PORT}${workerInfo}`)
+
+    // Bootstrap topic embeddings (non-blocking, only on first worker or non-clustered)
+    if (!CLUSTER_ENABLED || cluster.worker?.id === 1) {
+        bootstrapTopicEmbeddings()
+            .catch(err => console.error('topic embeddings bootstrap error:', err?.message || err));
+    }
 })
 } // end of cluster worker / non-clustered block

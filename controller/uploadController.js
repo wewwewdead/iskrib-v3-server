@@ -1,4 +1,4 @@
-import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, updateRepostCaptionService, completeOnboardingService } from "../services/uploadService.js";
+import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, updateRepostCaptionService, completeOnboardingService, updateInterestsService } from "../services/uploadService.js";
 
 export const uploadUserDataController = async(req, res) =>{
     const {bio, name, username} = req.body;
@@ -139,6 +139,20 @@ export const completeOnboardingController = async(req, res) => {
         console.error('failed to complete onboarding:', error);
         const status = error?.status || 500;
         return res.status(status).json({error: error?.error || 'failed to complete onboarding'});
+    }
+}
+
+export const updateInterestsController = async(req, res) => {
+    const userId = req.userId;
+    const {writingInterests, writingGoal} = req.body;
+
+    try {
+        await updateInterestsService(userId, writingInterests, writingGoal);
+        return res.status(200).json({message: 'interests updated'});
+    } catch (error) {
+        console.error('failed to update interests:', error);
+        const status = error?.status || 500;
+        return res.status(status).json({error: error?.error || 'failed to update interests'});
     }
 }
 

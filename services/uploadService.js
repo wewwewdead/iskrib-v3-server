@@ -3,6 +3,8 @@ import { imageUploader } from "../routes/routes.js";
 import supabase from "./supabase.js";
 import ParseContent from "../utils/parseData.js";
 import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
+import { extractMentionUserIds } from "../utils/extractMentions.js";
+import { updateUserInterestsEmbedding } from "./interestEmbeddingService.js";
 
 const POST_TYPE_TEXT = 'text';
 
@@ -108,6 +110,12 @@ export const completeOnboardingService = async(userId, writingInterests, writing
     if(error){
         console.error('supabase error completing onboarding:', error.message);
         throw {status: 500, error: 'failed to complete onboarding'};
+    }
+
+    // Fire-and-forget: generate interests embedding for personalized feed
+    if(Array.isArray(writingInterests) && writingInterests.length > 0){
+        updateUserInterestsEmbedding(userId, writingInterests)
+            .catch(err => console.error('non-blocking interests embedding error:', err?.message || err));
     }
 
     return true;
@@ -283,9 +291,13 @@ export const uploadJournalContentService = async(
         }
     }
 
-    let {error} = await supabase
+    let insertResult = await supabase
     .from('journals')
-    .insert(insertPayload);
+    .insert(insertPayload)
+    .select('id')
+    .single();
+
+    let error = insertResult.error;
 
     if(error){
         const missingRemixColumns = error?.message?.includes('is_remix') || error?.message?.includes('remix_source_journal_id');
@@ -295,16 +307,50 @@ export const uploadJournalContentService = async(
                 embeddings: embeddingResult
             };
 
-            const retry = await supabase
+            insertResult = await supabase
             .from('journals')
-            .insert(fallbackPayload);
-            error = retry.error;
+            .insert(fallbackPayload)
+            .select('id')
+            .single();
+            error = insertResult.error;
         }
     }
 
     if(error){
         console.error('supabase error while uploading content:',error.message);
         throw {status: 500, error: 'supabase error while uploading content'};
+    }
+
+    const journalId = insertResult.data?.id;
+
+    // Non-fatal: send mention notifications
+    if(journalId){
+        try {
+            const mentionedUserIds = extractMentionUserIds(content);
+            const filtered = mentionedUserIds
+                .filter(id => id !== userId)
+                .slice(0, 50);
+
+            if(filtered.length > 0){
+                const notifRows = filtered.map(receiverId => ({
+                    sender_id: userId,
+                    receiver_id: receiverId,
+                    type: 'mention',
+                    journal_id: journalId,
+                    read: false
+                }));
+
+                const {error: notifError} = await supabase
+                    .from('notifications')
+                    .insert(notifRows);
+
+                if(notifError){
+                    console.error('[mentions] new post: insert failed:', notifError.message);
+                }
+            }
+        } catch (mentionErr) {
+            console.error('[mentions] new post error:', mentionErr?.message || mentionErr);
+        }
     }
 
     // Non-fatal: record publish for writing streak
@@ -395,6 +441,41 @@ export const updateJournalService = async(content, title, journalId, userId) => 
         throw{status: 500, error: 'supabase error while uploading content'};
     }
 
+    // Non-fatal: send mention notifications on edit
+    try {
+        const mentionedUserIds = extractMentionUserIds(resolvedContent);
+        const filtered = mentionedUserIds
+            .filter(id => id !== userId)
+            .slice(0, 50);
+
+        // Remove old mention notifications for this journal to avoid duplicates
+        const { error: deleteError } = await supabase
+            .from('notifications')
+            .delete()
+            .eq('type', 'mention')
+            .eq('journal_id', journalId);
+
+        if (deleteError) console.error('[mentions] edit: clear old failed:', deleteError.message);
+
+        if (filtered.length > 0) {
+            const notifRows = filtered.map(receiverId => ({
+                sender_id: userId,
+                receiver_id: receiverId,
+                type: 'mention',
+                journal_id: journalId,
+                read: false
+            }));
+
+            const { error: notifError } = await supabase
+                .from('notifications')
+                .insert(notifRows);
+
+            if (notifError) console.error('[mentions] edit: insert failed:', notifError.message);
+        }
+    } catch (mentionErr) {
+        console.error('[mentions] edit error:', mentionErr?.message || mentionErr);
+    }
+
     return true;
 }
 
@@ -440,6 +521,42 @@ export const updateRepostCaptionService = async(journalId, userId, caption) => {
     if(updateError){
         console.error('supabase error while updating repost caption:', updateError.message);
         throw {status: 500, error: 'failed to update repost caption'};
+    }
+
+    return true;
+}
+
+export const updateInterestsService = async(userId, writingInterests, writingGoal) => {
+    if(!userId){
+        throw {status: 400, error: 'userId is undefined'};
+    }
+
+    const payload = {};
+
+    if(Array.isArray(writingInterests)){
+        payload.writing_interests = writingInterests.filter(i => typeof i === 'string').slice(0, 16);
+    }
+    if(writingGoal && typeof writingGoal === 'string'){
+        payload.writing_goal = writingGoal;
+    }
+
+    if(Object.keys(payload).length === 0){
+        throw {status: 400, error: 'no valid fields to update'};
+    }
+
+    const {error} = await supabase
+        .from('users')
+        .update(payload)
+        .eq('id', userId);
+
+    if(error){
+        console.error('supabase error updating interests:', error.message);
+        throw {status: 500, error: 'failed to update interests'};
+    }
+
+    // Await embedding so it's in the DB before response (feed refetch needs it)
+    if(Array.isArray(writingInterests) && writingInterests.length > 0){
+        await updateUserInterestsEmbedding(userId, writingInterests);
     }
 
     return true;

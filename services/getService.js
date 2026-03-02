@@ -600,6 +600,80 @@ export const getFollowingFeedService = async(limit, userId, before) => {
     return { data: slicedData, hasMore };
 }
 
+export const getForYouFeedService = async (limit, userId, offset) => {
+    if (!userId) {
+        throw { status: 401, error: 'authentication required' };
+    }
+    if (isNaN(limit) || limit > 20 || limit < 1) {
+        throw { status: 400, error: 'limit should be integer, not below 1 and higher than 20' };
+    }
+
+    const parsedLimit = parseInt(limit);
+    const parsedOffset = parseInt(offset) || 0;
+
+    const { data: rpcData, error } = await supabase.rpc('get_for_you_feed', {
+        p_user_id: userId,
+        p_limit: parsedLimit + 1,
+        p_offset: parsedOffset
+    });
+
+    if (error) {
+        console.error('supabase error fetching for-you feed:', error.message);
+        throw { status: 500, error: 'supabase error fetching for-you feed' };
+    }
+
+    if (!rpcData || rpcData.length === 0) {
+        return { data: [], hasMore: false };
+    }
+
+    // Reshape RPC rows to match PostgREST format the client expects
+    const data = rpcData.map(row => ({
+        id: row.id,
+        user_id: row.user_id,
+        title: row.title,
+        content: row.content,
+        post_type: row.post_type,
+        created_at: row.created_at,
+        privacy: row.privacy,
+        views: row.views,
+        is_repost: row.is_repost,
+        repost_source_journal_id: row.repost_source_journal_id,
+        repost_caption: row.repost_caption,
+        prompt_id: row.prompt_id,
+        users: { id: row.user_obj_id, name: row.user_name, image_url: row.user_image_url, badge: row.user_badge },
+        like_count: [{ count: Number(row.like_count) }],
+        reaction_count: [{ count: Number(row.reaction_count) }],
+        comment_count: [{ count: Number(row.comment_count) }],
+        bookmark_count: [{ count: Number(row.bookmark_count) }]
+    }));
+
+    // Personalization (same pattern as getFollowingFeedService)
+    const journalIds = data.map(j => j.id);
+    const [userLikes, userBookmarks, userReactions] = await Promise.all([
+        supabase.from('likes').select('journal_id').in('journal_id', journalIds).eq('user_id', userId),
+        supabase.from('bookmarks').select('journal_id').in('journal_id', journalIds).eq('user_id', userId),
+        supabase.from('reactions').select('journal_id, reaction_type').in('journal_id', journalIds).eq('user_id', userId)
+    ]);
+
+    const userHasLikedSet = new Set(userLikes.data?.map(j => j.journal_id) || []);
+    const userHasBookmarkedSet = new Set(userBookmarks.data?.map(j => j.journal_id) || []);
+    const userReactionMap = new Map((userReactions.data || []).map(r => [r.journal_id, r.reaction_type]));
+
+    await attachRepostSources(data);
+
+    const formattedData = data.map(journal => ({
+        ...journal,
+        has_liked: userHasLikedSet.has(journal.id),
+        has_bookmarked: userHasBookmarkedSet.has(journal.id),
+        user_reaction: userReactionMap.get(journal.id) || null
+    }));
+
+    const hasMore = data.length > parsedLimit;
+    const slicedData = hasMore ? formattedData.slice(0, parsedLimit) : formattedData;
+
+    return { data: slicedData, hasMore };
+}
+
 export const getMonthlyHottestJournalsService = async(limit, userId) => {
     if(isNaN(limit) || limit < 1 || limit > 10){
         throw {status: 400, error: 'limit should be an integer between 1 and 10'};
@@ -1175,6 +1249,83 @@ export const searchUsersService = async(query, limit = 10) => {
         data: hasMore ? users.slice(0, parsedLimit) : users,
         hasMore: hasMore
     };
+}
+
+export const searchFollowingUsersService = async(userId, query, limit = 10) => {
+    if(!userId){
+        throw {status: 400, error: 'userId is required'};
+    }
+
+    const parsedLimit = parseInt(limit);
+    if(isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > SEARCH_LIMIT_MAX){
+        throw {status: 400, error: `limit should be an integer between 1 and ${SEARCH_LIMIT_MAX}`};
+    }
+
+    // Get IDs of users this person follows
+    const {data: followRows, error: followError} = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', userId);
+
+    if(followError){
+        console.error('error fetching follows:', followError.message);
+        throw {status: 500, error: 'error fetching followed users'};
+    }
+
+    const followingIds = (followRows || []).map(r => r.following_id);
+    if(followingIds.length === 0){
+        return {data: []};
+    }
+
+    const selectColumns = 'id, name, username, image_url, badge';
+    const normalizedQuery = query ? (typeof query === 'string' ? query.trim() : '') : '';
+
+    if(!normalizedQuery){
+        // No query — return all followed users up to limit
+        const {data, error} = await supabase
+            .from('users')
+            .select(selectColumns)
+            .in('id', followingIds)
+            .order('name', {ascending: true})
+            .limit(parsedLimit);
+
+        if(error){
+            console.error('error fetching followed users:', error.message);
+            throw {status: 500, error: 'error fetching followed users'};
+        }
+
+        return {data: data || []};
+    }
+
+    const escapedQuery = normalizedQuery.replace(/[%_]/g, (match) => `\\${match}`);
+
+    const [nameResult, usernameResult] = await Promise.all([
+        supabase
+            .from('users')
+            .select(selectColumns)
+            .in('id', followingIds)
+            .ilike('name', `%${escapedQuery}%`)
+            .limit(parsedLimit),
+        supabase
+            .from('users')
+            .select(selectColumns)
+            .in('id', followingIds)
+            .ilike('username', `%${escapedQuery}%`)
+            .limit(parsedLimit)
+    ]);
+
+    if(nameResult.error || usernameResult.error){
+        console.error('search following error:', nameResult.error?.message || usernameResult.error?.message);
+        throw {status: 500, error: 'error searching followed users'};
+    }
+
+    const userMap = new Map();
+    (nameResult.data || []).forEach((user) => userMap.set(user.id, user));
+    (usernameResult.data || []).forEach((user) => {
+        if(!userMap.has(user.id)) userMap.set(user.id, user);
+    });
+
+    return {data: [...userMap.values()].slice(0, parsedLimit)};
 }
 
 export const searchJournalsService = async(query, limit, userId) => {

@@ -51,7 +51,7 @@ BEGIN
     -- Get max hot score for normalization
     SELECT COALESCE(MAX(
         COALESCE(j2.views, 0) * 6
-        + j2.cached_like_count * 3
+        + j2.cached_reaction_count * 3
         + j2.cached_comment_count * 2
         + j2.cached_bookmark_count * 2
     ), 1)
@@ -77,7 +77,7 @@ BEGIN
             (1 - (j.embeddings <=> source_embedding))::FLOAT AS sem_sim,
             (
                 COALESCE(j.views, 0) * 6
-                + j.cached_like_count * 3
+                + j.cached_reaction_count * 3
                 + j.cached_comment_count * 2
                 + j.cached_bookmark_count * 2
             )::BIGINT AS h_score

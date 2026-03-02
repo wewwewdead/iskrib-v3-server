@@ -1,4 +1,4 @@
-import { getBookmarksService, getCommentsService, getFollowingFeedService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService, searchUsersService } from "../services/getService.js";
+import { getBookmarksService, getCommentsService, getFollowingFeedService, getForYouFeedService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchFollowingUsersService, searchJournalsService, searchUsersService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -145,6 +145,20 @@ export const getFollowingFeedController = async(req, res) => {
     }
 }
 
+export const getForYouFeedController = async(req, res) => {
+    const { limit = 5, offset = 0 } = req.query;
+    const userId = req.userId;
+
+    try {
+        const journalData = await getForYouFeedService(limit, userId, offset);
+        return res.status(200).json(journalData);
+    } catch (error) {
+        console.error(error);
+        const status = error?.status || 500;
+        return res.status(status).json({ error: error?.error || 'failed to fetch for-you feed' });
+    }
+}
+
 export const getMonthlyHottestJournalsController = async(req, res) => {
     const {limit = 10, userId} = req.query;
 
@@ -183,5 +197,18 @@ export const getVisitedProfileMediaController = async(req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch visited profile media'});
+    }
+}
+
+export const searchFollowingUsersController = async(req, res) => {
+    const {query = '', limit = 10} = req.query;
+    const userId = req.userId;
+
+    try {
+        const response = await searchFollowingUsersService(userId, query, limit);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || 'failed to search following users'});
     }
 }
