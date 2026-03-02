@@ -81,15 +81,13 @@ export const uploadJournalContentController = async(req, res) =>{
     const {
         content,
         title,
-        post_type: postType,
-        canvas_doc: canvasDoc,
         remix_source_journal_id: remixSourceJournalId,
         is_remix: isRemix,
         prompt_id: promptId
     } = req.body;
     const userId = req.userId;
     try {
-        const result = await uploadJournalContentService(content, title, userId, postType, canvasDoc, remixSourceJournalId, isRemix, promptId);
+        const result = await uploadJournalContentService(content, title, userId, remixSourceJournalId, isRemix, promptId);
         const responsePayload = { message: 'Content saved successfully!' };
         if (result?.streakResult?.streakData) {
             responsePayload.streak = {
@@ -104,11 +102,11 @@ export const uploadJournalContentController = async(req, res) =>{
 }
 
 export const updateJournalController = async(req, res) =>{
-    const {content, title, journalId, post_type: postType, canvas_doc: canvasDoc} = req.body;
+    const {content, title, journalId} = req.body;
     const userId = req.userId;
 
     try {
-        await updateJournalService(content, title, journalId, userId, postType, canvasDoc);
+        await updateJournalService(content, title, journalId, userId);
         return res.status(200).json({message: 'journal was updated successfuly'});
     } catch (error) {
         console.error(error);

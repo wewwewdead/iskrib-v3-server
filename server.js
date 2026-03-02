@@ -92,7 +92,7 @@ const METRICS_ROUTE_LIMIT = 200;
 const CACHEABLE_PUBLIC_ROUTE_PATTERNS = [
     /^\/journals$/,
     /^\/journals\/hottest-monthly$/,
-    /^\/journals\/canvas\/gallery$/,
+
     /^\/journals\/search$/,
     /^\/users\/search$/,
     /^\/journal\/[^/]+$/,
@@ -266,40 +266,13 @@ const extractFromLexical = (contentJson) => {
     }
 };
 
-const extractFromCanvasDoc = (canvasDocRaw) => {
-    try {
-        const doc = typeof canvasDocRaw === 'string' ? JSON.parse(canvasDocRaw) : canvasDocRaw;
-        const text = Array.isArray(doc?.snippets)
-            ? normalizeWhitespace(
-                doc.snippets
-                    .map((snippet) => (typeof snippet?.text === 'string' ? snippet.text : ''))
-                    .join(' ')
-            )
-            : '';
-
-        let image = null;
-        if (Array.isArray(doc?.images)) {
-            const first = doc.images.find((img) => imageFromNodeLike(img));
-            if (first) image = imageFromNodeLike(first);
-        }
-
-        return { text, image };
-    } catch {
-        return { text: '', image: null };
-    }
-};
-
 const buildShareMetaFromJournal = (journal) => {
     const lexicalData = extractFromLexical(journal?.content);
-    const canvasData = extractFromCanvasDoc(journal?.canvas_doc);
     const normalizedTitle = typeof journal?.title === 'string' ? normalizeWhitespace(journal.title) : '';
     const title = normalizedTitle || 'Untitled Post';
     const authorName = normalizeWhitespace(journal?.users?.name) || 'Someone';
 
     let description = lexicalData.text || '';
-    if (!description && canvasData.text) {
-        description = canvasData.text;
-    }
     if (!description) {
         description = `Read "${title}" by ${authorName} on Iskryb`;
     }
@@ -309,9 +282,6 @@ const buildShareMetaFromJournal = (journal) => {
     if (lexicalData.image?.src) {
         imageCandidate = lexicalData.image.src;
         imageCandidateSource = 'lexical';
-    } else if (canvasData.image?.src) {
-        imageCandidate = canvasData.image.src;
-        imageCandidateSource = 'canvas';
     } else if (journal?.users?.image_url) {
         imageCandidate = journal.users.image_url;
         imageCandidateSource = 'author_avatar';
@@ -520,7 +490,7 @@ const convertToOgJpeg = async (inputBuffer) => {
 const getShareJournal = async (journalId) => {
     const { data: journal, error } = await supabase
         .from('journals')
-        .select('id, title, content, post_type, canvas_doc, created_at, users(name, image_url)')
+        .select('id, title, content, post_type, created_at, users(name, image_url)')
         .eq('id', journalId)
         .single();
 

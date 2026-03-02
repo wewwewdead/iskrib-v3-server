@@ -9,9 +9,8 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCanvasGalleryController, getCommentsController, getFollowingFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
+import { getBookmarksController, getCommentsController, getFollowingFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
-import { createCanvasRemixController } from "../controller/canvasController.js";
 import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
 import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
 import { toggleVoteController, toggleLibraryController, getMyLibraryController, getCommentsController as getStoryCommentsController, getCommentCountsController, addCommentController as addStoryCommentController, saveProgressController, getProgressController } from "../controller/storyInteractController.js";
@@ -238,7 +237,6 @@ router.post('/update-repost-caption', requireAuth, updateRepostCaptionController
 router.get('/journals/following', requireAuth, getFollowingFeedController);
 router.get('/journals', getJournalsController);
 router.get('/journals/hottest-monthly', getMonthlyHottestJournalsController);
-router.get('/journals/canvas/gallery', getCanvasGalleryController);
 router.get('/journals/search', searchJournalsController);
 router.get('/users/search', searchUsersController);
 router.get('/journal/:journalId/related', getRelatedPostsController);
@@ -259,8 +257,6 @@ router.post('/repost', requireAuth, repostController);
 router.post('/addComment', requireAuth, upload, addCommentController);
 
 router.get('/getComments', getCommentsController);
-
-router.post('/canvas/remix', requireAuth, createCanvasRemixController);
 
 router.post('/addBoorkmark', requireAuth, upload, addBoorkmarkController);
 

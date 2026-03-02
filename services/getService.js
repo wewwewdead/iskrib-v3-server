@@ -3,9 +3,6 @@ import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
 
 const SEARCH_LIMIT_MAX = 20;
 const SEARCH_QUERY_MIN_LENGTH = 2;
-const CANVAS_GALLERY_LIMIT_DEFAULT = 36;
-const CANVAS_GALLERY_LIMIT_MAX = 72;
-// Removed: CANVAS_GALLERY_HOT_FETCH_LIMIT — hot sorting now done via PostgreSQL RPC
 const PROFILE_MEDIA_BUCKETS = ['background', 'journal-images', 'avatars'];
 const PROFILE_MEDIA_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.svg'];
 const PROFILE_MEDIA_LIMIT_DEFAULT = 5;
@@ -17,7 +14,7 @@ const JOURNAL_BASE_SELECT = `
     title,
     content,
     post_type,
-    canvas_doc,
+
     created_at,
     privacy,
     views,
@@ -34,7 +31,7 @@ const JOURNAL_WITH_COUNTS_SELECT = `
     comment_count: comments(count),
     bookmark_count: bookmarks(count)
 `;
-// Lightweight select for list/feed views — no content or canvas_doc
+// Lightweight select for list/feed views — no content
 const JOURNAL_METADATA_SELECT = `
     id,
     user_id,
@@ -95,7 +92,7 @@ const attachRepostSources = async (journals) => {
 
     const { data: sources, error } = await supabase
         .from('journals')
-        .select('id, title, content, post_type, canvas_doc, created_at, users(id, name, image_url, badge)')
+        .select('id, title, content, post_type, created_at, users(id, name, image_url, badge)')
         .in('id', sourceIds);
 
     if (error) {
@@ -256,49 +253,6 @@ const parseMediaCursor = (cursor) => {
 
 const encodeMediaCursor = (state) => {
     const payload = JSON.stringify(state);
-    return Buffer.from(payload, 'utf8').toString('base64');
-};
-
-const parseCanvasGalleryCursor = (cursor, expectedSort = 'hottest') => {
-    const fallback = {
-        offset: 0,
-        sort: expectedSort
-    };
-
-    if(!cursor){
-        return fallback;
-    }
-
-    try {
-        const decoded = Buffer.from(cursor, 'base64').toString('utf8');
-        const parsed = JSON.parse(decoded);
-        const parsedSort = typeof parsed?.sort === 'string' && parsed.sort.toLowerCase().trim() === 'newest'
-            ? 'newest'
-            : 'hottest';
-
-        if(parsedSort !== expectedSort){
-            return fallback;
-        }
-
-        const parsedOffset = Number(parsed?.offset);
-        const normalizedOffset = Number.isNaN(parsedOffset) || parsedOffset < 0
-            ? 0
-            : Math.floor(parsedOffset);
-
-        return {
-            offset: normalizedOffset,
-            sort: parsedSort
-        };
-    } catch {
-        return fallback;
-    }
-};
-
-const encodeCanvasGalleryCursor = (offset, sort) => {
-    const payload = JSON.stringify({
-        offset: offset,
-        sort: sort
-    });
     return Buffer.from(payload, 'utf8').toString('base64');
 };
 
@@ -604,7 +558,7 @@ export const getFollowingFeedService = async(limit, userId, before) => {
         title: row.title,
         content: row.content,
         post_type: row.post_type,
-        canvas_doc: row.canvas_doc,
+
         created_at: row.created_at,
         privacy: row.privacy,
         views: row.views,
@@ -673,7 +627,7 @@ export const getMonthlyHottestJournalsService = async(limit, userId) => {
         title: row.title,
         content: row.content,
         post_type: row.post_type,
-        canvas_doc: row.canvas_doc,
+
         created_at: row.created_at,
         privacy: row.privacy,
         views: row.views,
@@ -705,93 +659,6 @@ export const getMonthlyHottestJournalsService = async(limit, userId) => {
     };
 }
 
-export const getCanvasGalleryService = async(limit = CANVAS_GALLERY_LIMIT_DEFAULT, userId, sort = 'hottest', cursor = null) => {
-    if(isNaN(limit) || limit < 1 || limit > CANVAS_GALLERY_LIMIT_MAX){
-        throw {status: 400, error: `limit should be an integer between 1 and ${CANVAS_GALLERY_LIMIT_MAX}`};
-    }
-
-    const parsedLimit = parseInt(limit);
-    const normalizedSort = typeof sort === 'string' ? sort.toLowerCase().trim() : 'hottest';
-    const isNewest = normalizedSort === 'newest';
-    const parsedCursor = parseCanvasGalleryCursor(cursor, isNewest ? 'newest' : 'hottest');
-    const cursorOffset = parsedCursor.offset;
-
-    let journals = [];
-    let journalsError = null;
-
-    if(isNewest){
-        // Newest: simple paginated query
-        const result = await supabase
-            .from('journals')
-            .select(JOURNAL_WITH_COUNTS_SELECT)
-            .eq('privacy', 'public')
-            .eq('post_type', 'canvas')
-            .order('created_at', {ascending: false})
-            .order('id', {ascending: false})
-            .range(cursorOffset, cursorOffset + parsedLimit);
-
-        journals = result.data || [];
-        journalsError = result.error;
-    } else {
-        // Hottest: use server-side RPC scoring — avoids fetching 220 rows
-        const result = await supabase.rpc('get_hot_canvas_gallery', {
-            p_limit: parsedLimit,
-            p_offset: cursorOffset
-        });
-
-        if(result.error){
-            journalsError = result.error;
-        } else {
-            // Reshape RPC rows to match client format
-            journals = (result.data || []).map((row) => ({
-                id: row.id,
-                user_id: row.user_id,
-                title: row.title,
-                content: row.content,
-                post_type: row.post_type,
-                canvas_doc: row.canvas_doc,
-                created_at: row.created_at,
-                privacy: row.privacy,
-                views: row.views,
-                is_repost: row.is_repost,
-                repost_source_journal_id: row.repost_source_journal_id,
-                repost_caption: row.repost_caption,
-                users: {
-                    id: row.user_id,
-                    name: row.user_name,
-                    image_url: row.user_image_url,
-                    badge: row.user_badge
-                },
-                like_count: [{count: row.like_count}],
-                comment_count: [{count: row.comment_count}],
-                bookmark_count: [{count: row.bookmark_count}],
-                hot_score: row.hot_score
-            }));
-        }
-    }
-
-    if(journalsError){
-        console.error('supabase error while fetching canvas gallery journals:', journalsError.message);
-        throw {status: 500, error: 'supabase error while fetching canvas gallery journals'};
-    }
-
-    const enrichedJournals = await attachUserInteractionFlags(journals, userId);
-
-    // RPC already returns p_limit + 1 rows for hasMore detection
-    const hasMore = enrichedJournals.length > parsedLimit;
-    const data = hasMore ? enrichedJournals.slice(0, parsedLimit) : enrichedJournals;
-    const nextCursor = hasMore
-        ? encodeCanvasGalleryCursor(cursorOffset + data.length, isNewest ? 'newest' : 'hottest')
-        : null;
-
-    return {
-        data: data,
-        sort: isNewest ? 'newest' : 'hottest',
-        totalCandidates: data.length,
-        hasMore: hasMore,
-        nextCursor: nextCursor
-    };
-}
 
 export const getJournalByIdService = async (journalId, userId) => {
     if (!journalId) {
