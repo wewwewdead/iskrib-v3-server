@@ -9,10 +9,9 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCanvasGalleryController, getCommentsController, getFollowingFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUniversePostsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
+import { getBookmarksController, getCanvasGalleryController, getCommentsController, getFollowingFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchJournalsController, searchUsersController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
 import { createCanvasRemixController } from "../controller/canvasController.js";
-import { requestConstellationController, respondConstellationController, getViewportConstellationsController, deleteConstellationController } from "../controller/constellationController.js";
 import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
 import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
 import { toggleVoteController, toggleLibraryController, getMyLibraryController, getCommentsController as getStoryCommentsController, getCommentCountsController, addCommentController as addStoryCommentController, saveProgressController, getProgressController } from "../controller/storyInteractController.js";
@@ -99,7 +98,6 @@ const NOTIFICATION_JOURNAL_SELECT = `
     reaction_type,
     read,
     created_at,
-    constellation_id,
     journals!journal_id(
         title,
         content,
@@ -109,8 +107,7 @@ const NOTIFICATION_JOURNAL_SELECT = `
         bookmarks(count),
         users(id, name, image_url, badge)
     ),
-    users!sender_id(id, name, image_url, badge),
-    constellations!constellation_id(status, star_id_a, star_id_b)
+    users!sender_id(id, name, image_url, badge)
 `;
 const NOTIFICATION_OPINION_SELECT = `
     id,
@@ -122,29 +119,6 @@ const NOTIFICATION_OPINION_SELECT = `
     opinions!opinion_id(id, opinion, user_id, created_at),
     users!sender_id(id, name, image_url, badge)
 `;
-const COLLECTION_SELECT_COLUMNS = `
-    id,
-    user_id,
-    name,
-    description,
-    is_public,
-    created_at
-`;
-const COLLECTION_JOURNALS_SELECT = `
-    id,
-    journals(
-        id,
-        title,
-        created_at,
-        user_id,
-        content,
-        users(id, image_url, name, badge),
-        comments!post_id(count),
-        bookmarks!journal_id(count),
-        likes!journal_id(count)
-    )
-`;
-const NOT_COLLECTED_JOURNAL_SELECT = 'id, created_at, title, content';
 const OPINION_LIST_SELECT = `
     id,
     user_id,
@@ -269,7 +243,6 @@ router.get('/journals/search', searchJournalsController);
 router.get('/users/search', searchUsersController);
 router.get('/journal/:journalId/related', getRelatedPostsController);
 router.get('/journal/:journalId', getJournalByIdController);
-router.get('/universe/posts', getUniversePostsController);
 
 router.get('/userJournals', requireAuth, getUserJournalsController);
 router.get('/profileMedia', requireAuth, getProfileMediaController);
@@ -676,331 +649,6 @@ router.post('/updatePrivacy', requireAuth, upload, async(req, res) => {
     return res.status(200).json({message: 'success'});
 })
 
-router.post('/addCollections', requireAuth, upload, async(req, res) => {
-    let {journalIds, title, description} = req.body;
-
-    if(typeof journalIds === 'string'){
-        journalIds = journalIds.split(',').map(id => id.trim()).filter(id => id !== '');
-    }
-
-    if(!title || !description){
-        console.error('no collections title or description')
-        return res.status(400).json({error: 'no collections title or description'})
-    }
-    const userId = req.userId;
-
-    try {
-        const {data: collections, error: errorCollections} = await supabase
-        .from('collections')
-        .insert({
-            name: title,
-            description: description,
-            user_id: userId
-        })
-        .select()
-        .single()
-
-        if(errorCollections){
-            console.error('error inserting data to database', errorCollections.message)
-            return res.status(500).json({error: 'error inserting data to database'})
-        }
-
-        if(Array.isArray(journalIds) && journalIds.length > 0){
-            const collectionJournals = journalIds.map(journalId => ({
-                collection_id: collections.id,
-                journal_id: journalId,
-            }))
-
-            const {data: linkedJournals, error: errorLinkedJournals} = await supabase
-            .from('collection_journal')
-            .insert(collectionJournals)
-
-            if(errorLinkedJournals){
-                console.error('error inserting linked journals', errorLinkedJournals.message);
-                return res.status(500).json({error: 'error inserting linkedjournals'})
-            }
-        }
-
-        return res.status(200).json({message: 'success'})
-    } catch (error) {
-        console.error('Unexpected error:', error);
-        return res.status(500).json({
-            error: 'Internal server error',
-            details: error.message
-        });
-    }
-})
-
-router.post('/updateCollection', requireAuth, upload, async(req, res) =>{
-    let {journalIds, collectionId} = req.body;
-
-    if(!collectionId){
-        console.error('no collection id')
-        return res.status(400).json({error: 'no collection id'})
-    }
-
-    if(typeof journalIds === 'string'){
-        journalIds = journalIds.split(',').map((id) => id.trim()).filter((id) => id !== '');
-    }
-
-    if(Array.isArray(journalIds) && journalIds.length > 0){
-        const ids = journalIds.map((journalId) => ({
-            journal_id: journalId,
-            collection_id: collectionId
-        }))
-        
-        console.log(ids);
-
-        const {error: errorUpdatingCollection} = await supabase
-            .from('collection_journal')
-            .insert(ids)
-
-        
-        if(errorUpdatingCollection){
-            console.error('error updating collections', errorUpdatingCollection.message)
-            return res.status(500).json({eror: 'error updating collections'})
-        }
-    }
-
-    return res.status(200).json({message: 'success'})
-
-})
-
-router.get('/getCollections', optionalAuth, async(req, res) => {
-    const {userId: targetUserId, before, limit} = req.query;
-    
-    if(!targetUserId){
-        console.error('error: no collectionid or userid')
-        return res.status(400).json({error: 'no collection id or user id'})
-    }
-
-    const parsedLimit = parseInt(limit);
-    if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
-        console.error('limit should be between 1 to 10')
-        return res.status(400).json({error: 'limit should only between 1 - 10'})
-    }
-
-    let query = supabase
-    .from('collections')
-    .select(COLLECTION_SELECT_COLUMNS)
-    .eq('user_id', targetUserId)
-    .order('created_at', {ascending: false})
-    .order('id', {ascending: false})
-    .limit(parsedLimit + 1)
-
-    if(before){
-        query = query.lt('created_at', before);
-    }
-
-    const {data: getCollections, error: errorGetCollections} = await query;
-
-    if(errorGetCollections){
-        console.error('error getting collections:', errorGetCollections.message);
-        return res.status(500).json({error: 'error getting collections'})
-    }
-
-    if(!getCollections || getCollections.length === 0){
-        return res.status(200).json({data: [], hasMore: false})
-    }
-
-    const hasMore = getCollections.length > parsedLimit;
-    const slicedData = hasMore ?  getCollections.slice(0, parsedLimit) : getCollections;
-
-    return res.status(200).json({data: slicedData, hasMore: hasMore})
-})
-
-router.get('/getCollectionJournals', requireAuth, async(req, res) =>{
-    const {collectionId, before, limit} = req.query;
-
-    if(!collectionId) {
-        console.error('no collectionId')
-        return res.status(400).json({error: 'no collection ID'});
-    }
-    const parsedLimit = parseInt(limit);
-
-    if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
-        console.error('limit should only between 1-10');
-        return res.status(400).json({error: 'Limit should only between 1-10'})
-    }
-
-    let query = supabase
-    .from('collection_journal')
-    .select(COLLECTION_JOURNALS_SELECT)
-    .eq('collection_id', collectionId)
-    .limit(parsedLimit + 1)
-    .order('id', {ascending: false})
-
-    if(before){
-        query = query.lt('id', before);
-    }
-
-    const {data: journals, error: errorJournals} = await query;
-
-    if(errorJournals){
-        console.error('supabase error while fetching data:', errorJournals.message);
-        return res.status(500).json({error: 'supabase error while fetching data'});
-    }
-    const userId = req.userId;
-    const journalIds = journals?.map((journal) => journal.journals.id) || [];
-
-    let hasLikedPromise;
-    let hasBookmarkedPromise;
-
-    if(journalIds){
-        hasLikedPromise = supabase
-        .from('likes')
-        .select('journal_id')
-        .in('journal_id', journalIds)
-        .eq('user_id', userId)
-
-        hasBookmarkedPromise = supabase
-        .from('bookmarks')
-        .select('journal_id')
-        .in('journal_id', journalIds)
-        .eq('user_id', userId)
-    }
-
-    const [hasLikedResult, hasBookMarkedResult] = await Promise.all([hasLikedPromise, hasBookmarkedPromise]);
-
-    const {data: hasLiked, error: errorHasLiked} = hasLikedResult;
-    const {data: hasBookMarked, error: errorHasbookmarked} = hasBookMarkedResult;
-
-    if(errorHasLiked || errorHasbookmarked){
-        console.error('error fetching data',  errorHasLiked || errorHasbookmarked);
-        return res.status(500).json({error: 'error fetching data'});
-    }
-
-    const userHasLikedSet = new Set(hasLiked.map((journal) => journal.journal_id) || []);
-    const userHasBookmarkedSet = new Set(hasBookMarked.map((bookmark) => bookmark.journal_id) || []);
-
-    const formatted  = journals.map((journal) => ({
-        ...journal,
-        hasLiked: userHasLikedSet?.has(journal?.journals.id),
-        hasBookMarked: userHasBookmarkedSet?.has(journal?.journals.id)
-    }))
-
-    const hasMore = journals.length > parsedLimit;
-    const slicedData = hasMore ? formatted.slice(0, parsedLimit) : formatted;
-
-    return res.status(200).json({data: slicedData, hasMore: hasMore})
-
-})
-
-router.get('/getNotCollectedPost', requireAuth, async(req, res) => {
-    const {before, limit, collectionId} = req.query;
-    const userId = req.userId;
-
-    const parsedLimit = parseInt(limit);
-    if(isNaN(parsedLimit) || parsedLimit > 10 || parsedLimit < 1){
-        console.error('limit should be between 1 to 10');
-        return res.status(400).json({error: 'limit should be between 1 to 10'});
-    }
-
-    if(!userId){
-        console.error('no userId!');
-        return res.status(400).json({error: 'no userId'});
-    }
-    if(!collectionId){
-        console.error('no collectionId');
-        return res.status(400).json({error: 'no collectionId'})
-    }
-
-    let query = supabase
-    .from('journals')
-    .select(NOT_COLLECTED_JOURNAL_SELECT)
-    .eq('user_id', userId)
-    .order('created_at', {ascending: false})
-    .limit(parsedLimit + 1)
-
-    if(before){
-        query = query.lt('created_at', before);
-    }
-
-    const {data: journals, error: errorJournals} = await query;
-    
-
-    if(errorJournals){
-        console.error('error:', errorJournals.message);
-        return res.status(500).json({error: 'error fetching journals or collectionJournals Ids'})
-    }
-    
-    const journalIds = journals.map((journal) => journal.id) || [];
-
-    let collectedJournals;
-    if(journalIds){
-        collectedJournals = supabase
-        .from('collection_journal')
-        .select('journal_id')
-        .in('journal_id', journalIds)
-        .eq('collection_id', collectionId)
-    }
-
-    const {data: collectedJournalIds, error: errorCollectedJournalIds} = await collectedJournals;
-
-    if(errorCollectedJournalIds){
-        console.error('error:', errorCollectedJournalIds.message);
-        return res.status(500).json({error: 'error fetching collected journals'})
-    }
-
-    const journalIdSet = new Set(collectedJournalIds.map((j) => j.journal_id)  || []);
-
-    const formatted = journals.map((journal) => ({
-        ...journal,
-        hasCollected: journalIdSet.has(journal.id)
-    }))
-
-    const hasMore = journals.length > parsedLimit;
-    const slicedData = hasMore ? formatted.slice(0, parsedLimit) : formatted;
-
-    return res.status(200).json({data: slicedData, hasMore: hasMore});
-})
-
-router.delete('/deleteCollection/:collectionId', requireAuth, async(req, res) =>{
-    const {collectionId} = req.params;
-    if(!collectionId){
-        console.error('no collectionId');
-        return res.status(400).json({error: 'no collectionId'});
-    }
-    const userId = req.userId;
-
-    const {data: deleteCollection, error: errorDeleteCollection} = await supabase
-    .from('collections')
-    .delete()
-    .eq('id', collectionId)
-    .eq('user_id', userId)
-
-    if(errorDeleteCollection){
-        console.error('supabase error while deleting collections', errorDeleteCollection.message);
-        return res.status(500).json({error: 'error deleting colletion'});
-    }
-
-    return res.status(200).json({message: 'delete successful'});
-})
-
-router.post('/updatePrivacyCollection', requireAuth, upload, async(req, res) => {
-    const {collectionId, isPublic} = req.body;
-    const userId = req.userId;
-
-    if(!collectionId || !userId){
-        console.error('no collectionId or userId');
-        return res.status(400).json({error: 'error no collectionId or userId'});
-    }
-
-    const {data: updatePrivacy, error: errorUpdatePrivacy} = await supabase
-    .from('collections')
-    .update({is_public: isPublic})
-    .eq('user_id', userId)
-    .eq('id', collectionId)
-
-    if(errorUpdatePrivacy){
-        console.error('error updating privacy:', errorUpdatePrivacy.message);
-        return res.status(500).json({error: 'error updating privacy'})
-    }
-
-    return res.status(200).json({message: 'success'})
-
-})
-
 router.post('/addOpinion', requireAuth, upload, async(req, res) =>{
     const {opinion} = req.body;
     if(!opinion || opinion.length > 280){
@@ -1314,10 +962,6 @@ router.post('/update-username', requireAuth, async (req, res) => {
     return res.status(200).json({ message: 'success', username: trimmed.toLowerCase() });
 });
 
-router.post('/constellation/request', requireAuth, requestConstellationController);
-router.post('/constellation/respond', requireAuth, respondConstellationController);
-router.get('/constellation/viewport', getViewportConstellationsController);
-router.delete('/constellation/:id', requireAuth, deleteConstellationController);
 
 // ── Story routes ──
 router.post('/stories', requireAuth, upload, createStoryController);

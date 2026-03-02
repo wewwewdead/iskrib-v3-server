@@ -1,4 +1,4 @@
-import { getBookmarksService, getCanvasGalleryService, getCommentsService, getFollowingFeedService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUniversePostsService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService, searchUsersService } from "../services/getService.js";
+import { getBookmarksService, getCanvasGalleryService, getCommentsService, getFollowingFeedService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchJournalsService, searchUsersService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -166,18 +166,6 @@ export const getCanvasGalleryController = async(req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch canvas gallery'});
-    }
-}
-
-export const getUniversePostsController = async(req, res) => {
-    const {minX, maxX, minY, maxY, limit = 200} = req.query;
-
-    try {
-        const response = await getUniversePostsService(minX, maxX, minY, maxY, limit);
-        return res.status(200).json(response);
-    } catch (error) {
-        console.error(error);
-        return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch universe posts'});
     }
 }
 
