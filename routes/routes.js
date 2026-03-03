@@ -9,7 +9,7 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, completeOnboardingController, updateInterestsController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCommentsController, getFollowingFeedController, getForYouFeedController, getJournalByIdController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchFollowingUsersController, searchJournalsController, searchUsersController } from "../controller/getController.js";
+import { getBookmarksController, getCommentsController, getFollowingFeedController, getForYouFeedController, getJournalByIdController, getJournalContentController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchFollowingUsersController, searchJournalsController, searchUsersController } from "../controller/getController.js";
 import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
 import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
 import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
@@ -20,6 +20,7 @@ import { getStreakService, recordPublishForStreak } from "../services/streakServ
 import { getTodaysPromptController, getPromptResponsesController } from "../controller/promptController.js";
 import { toggleReactionController, getPostReactionsController } from "../controller/reactionController.js";
 import { getWeeklyRecapController } from "../controller/recapController.js";
+import { MEDIA_VARIANT_CONFIG, createMediaResponsePayload, createVariantFileNames } from "../utils/mediaVariants.js";
 
 const router = express.Router();
 
@@ -100,11 +101,9 @@ const NOTIFICATION_JOURNAL_SELECT = `
     created_at,
     journals!journal_id(
         title,
-        content,
+        preview_text,
+        thumbnail_url,
         created_at,
-        likes(count),
-        comments(count),
-        bookmarks(count),
         users(id, name, image_url, badge)
     ),
     users!sender_id(id, name, image_url, badge)
@@ -156,6 +155,35 @@ const COMMENT_REPLY_SELECT = `
     users(name, image_url, id, badge)
 `;
 
+const decorateNotificationMedia = (notification) => {
+    if(!notification || typeof notification !== 'object'){
+        return notification;
+    }
+
+    const senderAvatarMedia = createMediaResponsePayload('avatars', notification.users?.image_url, 'card');
+    const journalThumbnailMedia = createMediaResponsePayload('journal-images', notification.journals?.thumbnail_url, 'card');
+    const journalUserAvatarMedia = createMediaResponsePayload('avatars', notification.journals?.users?.image_url, 'card');
+
+    return {
+        ...notification,
+        users: notification.users ? {
+            ...notification.users,
+            image_url: senderAvatarMedia?.preferred_url || notification.users.image_url || null,
+            avatar_media: senderAvatarMedia
+        } : notification.users,
+        journals: notification.journals ? {
+            ...notification.journals,
+            thumbnail_url: journalThumbnailMedia?.preferred_url || notification.journals.thumbnail_url || null,
+            thumbnail_media: journalThumbnailMedia,
+            users: notification.journals.users ? {
+                ...notification.journals.users,
+                image_url: journalUserAvatarMedia?.preferred_url || notification.journals.users.image_url || null,
+                avatar_media: journalUserAvatarMedia
+            } : notification.journals.users
+        } : notification.journals
+    };
+};
+
 const parseLimitWithinRange = (value, min, max, fallback = null) => {
     const parsed = Number.parseInt(value, 10);
     if (Number.isNaN(parsed)) {
@@ -177,37 +205,57 @@ export const imageUploader = async(file, userId, bucket) =>{
         throw new Error('invalid file payload');
     }
 
-    let img_buffer = null
-    let img_url = null
-    img_buffer = await sharp(sourceBuffer)
-    .webp({quality: 80})
-    .toBuffer();
-
     const folderName = `user_id_${userId}`;
-    const fileName = `${Date.now()}_${crypto.randomUUID()}.webp`;
-    const filePath = `${folderName}/${fileName}`;
+    const baseFileName = `${Date.now()}_${crypto.randomUUID()}.webp`;
+    const variantFileNames = createVariantFileNames(baseFileName);
+    const bucketVariants = MEDIA_VARIANT_CONFIG[bucket];
+    if(!bucketVariants){
+        throw new Error(`unsupported bucket for upload: ${bucket}`);
+    }
 
-    const {data: uploadImage, error: errorUploadImage} = await supabase.storage
-    .from(bucket)
-    .upload(filePath, img_buffer, {
-        contentType: 'image/webp',
-        cacheControl: '31536000',
-        upsert: true
-    })
-    if(errorUploadImage){
-        console.error('supabase error while uploading image to supabase bucket', errorUploadImage)
+    const variantEntries = Object.entries(bucketVariants);
+    const renderedVariants = await Promise.all(
+        variantEntries.map(async([variantKey, sizeConfig]) => {
+            const renderedBuffer = await sharp(sourceBuffer)
+                .rotate()
+                .resize(sizeConfig.width, sizeConfig.height, { fit: sizeConfig.fit, withoutEnlargement: true })
+                .webp({ quality: variantKey === 'original' ? 82 : 78, effort: 4 })
+                .toBuffer();
+
+            return {
+                variantKey,
+                buffer: renderedBuffer,
+                filePath: `${folderName}/${variantFileNames[variantKey]}`
+            };
+        })
+    );
+
+    const uploadResults = await Promise.all(
+        renderedVariants.map(({ filePath, buffer }) => supabase.storage
+            .from(bucket)
+            .upload(filePath, buffer, {
+                contentType: 'image/webp',
+                cacheControl: '31536000',
+                upsert: true
+            }))
+    );
+
+    const failedUpload = uploadResults.find((result) => result.error);
+    if(failedUpload?.error){
+        console.error('supabase error while uploading image variants to supabase bucket', failedUpload.error);
         throw new Error('error uploading image into supabase bucket');
     }
+
+    const detailVariant = renderedVariants.find((entry) => entry.variantKey === 'detail');
     const {data: data_url} = supabase.storage
-    .from(bucket)
-    .getPublicUrl(filePath)
-    
-    if(data_url){
-        img_url = data_url.publicUrl;
-        return img_url;
-    } else {
-        throw new Error('Error uploading the image');
+        .from(bucket)
+        .getPublicUrl(detailVariant?.filePath || `${folderName}/${variantFileNames.detail}`);
+
+    if(data_url?.publicUrl){
+        return data_url.publicUrl;
     }
+
+    throw new Error('Error uploading the image');
 }
 
 router.post('/verify-turnstile', verfifyTurnstileController);
@@ -247,6 +295,7 @@ router.get('/journals/search', searchJournalsController);
 router.get('/users/search', searchUsersController);
 router.get('/users/following/search', requireAuth, searchFollowingUsersController);
 router.get('/journal/:journalId/related', getRelatedPostsController);
+router.get('/journal/:journalId/content', requireAuth, getJournalContentController);
 router.get('/journal/:journalId', getJournalByIdController);
 router.get('/explore/interests', requireAuth, getInterestSectionsController);
 
@@ -279,17 +328,17 @@ router.get('/getFollowsData', async(req, res) => {
     try {
         const followersCountPromise = supabase
         .from('follows')
-        .select('*', {count: 'exact', head: true})
+        .select('id', {count: 'exact', head: true})
         .eq('following_id', userId);
 
         const followingCountPromise = supabase
         .from('follows')
-        .select('*', {count: 'exact', head: true})
+        .select('id', {count: 'exact', head: true})
         .eq('follower_id', userId)
 
         const isFollowingPromise = supabase
         .from('follows')
-        .select('*', {count: 'exact', head: true})
+        .select('id', {count: 'exact', head: true})
         .eq('follower_id', loggedInUserId)
         .eq('following_id', userId)
 
@@ -427,7 +476,7 @@ router.get('/getNotifications', requireAuth, async(req, res) =>{
     const userHasLikedSet = new Set(hasLikedResult.map((likes) => likes.journal_id));
     const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmarks) => bookmarks.journal_id));
 
-    const formatted = merged.map((notif) => ({
+    const formatted = merged.map((notif) => decorateNotificationMedia({
         ...notif,
         hasLiked: notif.source === 'journal' ? userHasLikedSet.has(notif.journal_id) : false,
         hasBookMarked: notif.source === 'journal' ? userHasBookmarkedSet.has(notif.journal_id) : false
@@ -549,7 +598,7 @@ router.get('/getUnreadNotification', requireAuth, async(req, res) => {
     const userHasLikedSet = new Set(hasLikedResult.map((like) => like.journal_id));
     const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmark) => bookmark.journal_id));
 
-    const formatted = merged.map((notification) =>({
+    const formatted = merged.map((notification) => decorateNotificationMedia({
         ...notification,
         hasLiked: notification.source === 'journal' ? userHasLikedSet.has(notification?.journal_id) : false,
         hasBookMarked: notification.source === 'journal' ? userHasBookmarkedSet.has(notification?.journal_id) : false

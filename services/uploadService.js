@@ -259,11 +259,15 @@ export const uploadJournalContentService = async(
     }
 
     const embeddingBody = parseData.wholeText || '';
+    const preview_text = parseData.slicedText || '';
+    const thumbnail_url = parseData.firstImage?.src || null;
     const payload = {
         user_id: userId,
         title: trimmedTitle,
         post_type: POST_TYPE_TEXT,
         content: content,
+        preview_text,
+        thumbnail_url,
     };
 
     const embeddingResult = await GenerateEmbeddings(trimmedTitle, embeddingBody);
@@ -416,6 +420,8 @@ export const updateJournalService = async(content, title, journalId, userId) => 
     }
 
     const embeddingBody = parseData.wholeText || '';
+    const preview_text = parseData.slicedText || '';
+    const thumbnail_url = parseData.firstImage?.src || null;
     const embeddings = await GenerateEmbeddings(resolvedTitle, embeddingBody);
 
     if(!embeddings || !Array.isArray(embeddings) || embeddings.length === 0){
@@ -427,7 +433,9 @@ export const updateJournalService = async(content, title, journalId, userId) => 
         content: resolvedContent,
         title: resolvedTitle,
         post_type: POST_TYPE_TEXT,
-        embeddings: embeddings
+        embeddings: embeddings,
+        preview_text,
+        thumbnail_url,
     }
 
     const {data, error} = await supabase

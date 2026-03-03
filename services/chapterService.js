@@ -66,7 +66,7 @@ export const createChapterService = async (storyId, userId, title) => {
             chapter_number: nextNumber,
             title: (title || 'Untitled Chapter').trim(),
         })
-        .select('*')
+        .select('id, story_id, title, chapter_number, status, word_count, created_at, updated_at')
         .single();
 
     if (error) {
@@ -209,7 +209,7 @@ export const updateChapterService = async (storyId, chapterId, userId, updates) 
         .update(updateData)
         .eq('id', chapterId)
         .eq('story_id', storyId)
-        .select('*')
+        .select('id, story_id, title, chapter_number, status, word_count, created_at, updated_at')
         .single();
 
     if (error) {

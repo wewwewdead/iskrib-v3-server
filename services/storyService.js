@@ -1,6 +1,7 @@
 import supabase from "./supabase.js";
 import { imageUploader } from "../routes/routes.js";
 import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
+import { createMediaResponsePayload } from "../utils/mediaVariants.js";
 
 /** Strip the embedding vector from a story object before sending to client. */
 const stripEmbedding = (story) => {
@@ -24,6 +25,32 @@ const STORY_SELECT_COLUMNS = `
     updated_at
 `;
 
+const decorateAuthorSummary = (user, usage = 'card') => {
+    if(!user){
+        return user;
+    }
+
+    const avatarMedia = createMediaResponsePayload('avatars', user.image_url, usage);
+    return {
+        ...user,
+        image_url: avatarMedia?.preferred_url || user.image_url || null,
+        avatar_media: avatarMedia
+    };
+};
+
+const decorateStoryMedia = (story, usage = 'card') => {
+    if(!story){
+        return story;
+    }
+
+    const coverMedia = createMediaResponsePayload('story-covers', story.cover_url, usage);
+    return {
+        ...story,
+        cover_url: coverMedia?.preferred_url || story.cover_url || null,
+        cover_media: coverMedia
+    };
+};
+
 /**
  * Batch-fetch public user profiles for a list of author IDs.
  */
@@ -42,7 +69,7 @@ const fetchAuthorProfiles = async (authorIds) => {
     }
 
     const map = {};
-    (data || []).forEach(u => { map[u.id] = u; });
+    (data || []).forEach(u => { map[u.id] = decorateAuthorSummary(u, 'card'); });
     return map;
 };
 
@@ -106,7 +133,7 @@ export const createStoryService = async (userId, title, description, status, pri
         throw { status: 500, error: 'failed to create story' };
     }
 
-    return stripEmbedding(data);
+    return decorateStoryMedia(stripEmbedding(data), 'detail');
 };
 
 export const getStoriesService = async (limit, before, status, tag, userId) => {
@@ -159,7 +186,7 @@ export const getStoriesService = async (limit, before, status, tag, userId) => {
     }
 
     const formatted = data.map(story => ({
-        ...stripEmbedding(story),
+        ...decorateStoryMedia(stripEmbedding(story), 'card'),
         users: authorMap[story.author_id] || null,
         has_voted: userVotedSet.has(story.id),
         in_library: userLibrarySet.has(story.id),
@@ -231,7 +258,7 @@ export const getStoryByIdService = async (storyId, userId) => {
     }
 
     return {
-        ...stripEmbedding(story),
+        ...decorateStoryMedia(stripEmbedding(story), 'detail'),
         users: authorMap[story.author_id] || null,
         chapters: visibleChapters,
         has_voted: hasVoted,
@@ -318,7 +345,7 @@ export const updateStoryService = async (storyId, userId, updates, coverFile) =>
         throw { status: 500, error: 'failed to update story' };
     }
 
-    return stripEmbedding(data);
+    return decorateStoryMedia(stripEmbedding(data), 'detail');
 };
 
 export const deleteStoryService = async (storyId, userId) => {
@@ -384,7 +411,7 @@ export const getMyStoriesService = async (userId, limit, before) => {
     const hasMore = data.length > parsedLimit;
     const sliced = hasMore ? data.slice(0, parsedLimit) : data;
 
-    return { data: sliced.map(stripEmbedding), hasMore };
+    return { data: sliced.map((story) => decorateStoryMedia(stripEmbedding(story), 'card')), hasMore };
 };
 
 export const getUserStoriesService = async (targetUserId, limit, before) => {
@@ -419,7 +446,10 @@ export const getUserStoriesService = async (targetUserId, limit, before) => {
 
     // Batch-fetch author profiles
     const authorMap = await fetchAuthorProfiles(data.map(s => s.author_id));
-    const formatted = data.map(s => ({ ...stripEmbedding(s), users: authorMap[s.author_id] || null }));
+    const formatted = data.map((story) => ({
+        ...decorateStoryMedia(stripEmbedding(story), 'card'),
+        users: authorMap[story.author_id] || null
+    }));
 
     const hasMore = data.length > parsedLimit;
     const sliced = hasMore ? formatted.slice(0, parsedLimit) : formatted;

@@ -94,6 +94,7 @@ create trigger trg_bookmarks_count
 
 -- ─── 2. Monthly hottest journals (replaces fetch-all-then-sort) ─────────────
 -- Returns scored + sorted journals for the current month, limited server-side.
+drop function if exists public.get_monthly_hottest_journals(integer);
 create or replace function public.get_monthly_hottest_journals(
     p_limit int default 10
 )
@@ -101,9 +102,9 @@ returns table (
     id uuid,
     user_id uuid,
     title text,
-    content jsonb,
+    preview_text text,
+    thumbnail_url text,
     post_type text,
-    canvas_doc jsonb,
     created_at timestamptz,
     privacy text,
     views bigint,
@@ -127,9 +128,9 @@ as $$
         j.id,
         j.user_id,
         j.title,
-        j.content,
+        j.preview_text,
+        j.thumbnail_url,
         j.post_type,
-        j.canvas_doc,
         j.created_at,
         j.privacy,
         coalesce(j.views, 0)::bigint as views,

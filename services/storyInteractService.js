@@ -207,7 +207,8 @@ export const getCommentsService = async (chapterId, paragraphIndex) => {
         .select(`*, users(id, name, image_url, username, badge)`)
         .eq('chapter_id', chapterId)
         .is('parent_id', null)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: true })
+        .limit(50);
 
     if (paragraphIndex !== undefined && paragraphIndex !== null) {
         query = query.eq('paragraph_index', parseInt(paragraphIndex));
@@ -227,7 +228,8 @@ export const getCommentsService = async (chapterId, paragraphIndex) => {
             .from('story_comments')
             .select(`*, users(id, name, image_url, username, badge)`)
             .in('parent_id', commentIds)
-            .order('created_at', { ascending: true });
+            .order('created_at', { ascending: true })
+            .limit(200);
 
         if (!replyError && replies) {
             const replyMap = {};

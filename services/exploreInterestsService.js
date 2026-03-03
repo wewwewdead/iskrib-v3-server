@@ -1,5 +1,6 @@
 import supabase from "./supabase.js";
 import { getTopicEmbedding } from "./interestEmbeddingService.js";
+import { createMediaResponsePayload } from "../utils/mediaVariants.js";
 
 const MAX_INTEREST_SECTIONS = 8;
 const MIN_POSTS_PER_SECTION = 2;
@@ -59,22 +60,30 @@ export const getInterestSectionsService = async (userId) => {
 
             return {
                 interest,
-                posts: posts.map(row => ({
-                    id: row.id,
-                    user_id: row.user_id,
-                    title: row.title,
-                    content: row.content,
-                    post_type: row.post_type,
-                    created_at: row.created_at,
-                    views: row.views,
-                    user_name: row.user_name,
-                    user_image_url: row.user_image_url,
-                    user_badge: row.user_badge,
-                    username: row.username,
-                    like_count: Number(row.like_count),
-                    comment_count: Number(row.comment_count),
-                    bookmark_count: Number(row.bookmark_count),
-                }))
+                posts: posts.map((row) => {
+                    const thumbnailMedia = createMediaResponsePayload('journal-images', row.thumbnail_url, 'feed_banner');
+                    const userAvatarMedia = createMediaResponsePayload('avatars', row.user_image_url, 'card');
+
+                    return {
+                        id: row.id,
+                        user_id: row.user_id,
+                        title: row.title,
+                        preview_text: row.preview_text || '',
+                        thumbnail_url: thumbnailMedia?.preferred_url || row.thumbnail_url || null,
+                        thumbnail_media: thumbnailMedia,
+                        post_type: row.post_type,
+                        created_at: row.created_at,
+                        views: row.views,
+                        user_name: row.user_name,
+                        user_image_url: userAvatarMedia?.preferred_url || row.user_image_url || null,
+                        user_avatar_media: userAvatarMedia,
+                        user_badge: row.user_badge,
+                        username: row.username,
+                        like_count: Number(row.like_count),
+                        comment_count: Number(row.comment_count),
+                        bookmark_count: Number(row.bookmark_count),
+                    };
+                })
             };
         } catch (err) {
             console.error(`Error fetching interest posts for "${interest}":`, err?.message || err);

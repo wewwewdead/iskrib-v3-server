@@ -85,6 +85,31 @@ const REMOTE_IMAGE_MAX_BYTES = 15 * 1024 * 1024;
 const SHARE_IMAGE_FETCH_USER_AGENT = 'IskrybShareBot/1.0 (+https://iskrib.com)';
 const META_FB_APP_ID = (process.env.META_FB_APP_ID || process.env.FB_APP_ID || process.env.VITE_FB_APP_ID || '').trim();
 const SHARE_IMAGE_DEBUG = false;
+
+// ── In-memory LRU cache for generated share images ──
+const SHARE_IMAGE_CACHE_MAX = 200;
+const SHARE_IMAGE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const shareImageCache = new Map();
+const getShareImageCached = (key) => {
+    const entry = shareImageCache.get(key);
+    if (!entry) return null;
+    if (Date.now() - entry.ts > SHARE_IMAGE_CACHE_TTL_MS) {
+        shareImageCache.delete(key);
+        return null;
+    }
+    // Move to end (LRU refresh)
+    shareImageCache.delete(key);
+    shareImageCache.set(key, entry);
+    return entry.buf;
+};
+const setShareImageCached = (key, buf) => {
+    if (shareImageCache.size >= SHARE_IMAGE_CACHE_MAX) {
+        // Evict oldest (first key)
+        const firstKey = shareImageCache.keys().next().value;
+        shareImageCache.delete(firstKey);
+    }
+    shareImageCache.set(key, { buf, ts: Date.now() });
+};
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
 const PUBLIC_CACHE_CONTROL_VALUE = 'public, max-age=10, s-maxage=10, stale-while-revalidate=30';
 const PRIVATE_NO_STORE_CACHE_CONTROL = 'private, no-store';
@@ -97,8 +122,8 @@ const CACHEABLE_PUBLIC_ROUTE_PATTERNS = [
     /^\/journals\/search$/,
     /^\/users\/search$/,
     /^\/journal\/[^/]+$/,
-    /^\/sitemap-posts\.xml$/,
-    /^\/sitemap-profiles\.xml$/,
+    /^\/sitemap-posts-\d+\.xml$/,
+    /^\/sitemap-profiles-\d+\.xml$/,
     /^\/sitemap-index\.xml$/,
 ];
 
@@ -620,6 +645,15 @@ app.use(express.urlencoded({extended: true, limit: "2mb", parameterLimit: 1000})
 // ── Profile share route: composite OG image for social media ──
 app.get('/share/u/:username/image', async (req, res) => {
     const { username } = req.params;
+
+    // Serve from cache if available
+    const cached = getShareImageCached(`profile:${username}`);
+    if (cached) {
+        res.set('Content-Type', 'image/jpeg');
+        res.set('Cache-Control', 'public, max-age=3600');
+        return res.send(cached);
+    }
+
     await ensureShareFonts();
 
     try {
@@ -727,6 +761,7 @@ app.get('/share/u/:username/image', async (req, res) => {
             .jpeg({ quality: 82, mozjpeg: true })
             .toBuffer();
 
+        setShareImageCached(`profile:${username}`, finalImage);
         res.set('Content-Type', 'image/jpeg');
         res.set('Cache-Control', 'public, max-age=3600');
         return res.send(finalImage);
@@ -800,8 +835,19 @@ window.location.replace(${JSON.stringify(clientProfileUrl)});
 // ── Share route: serves OG meta tags for social media previews ──
 app.get('/share/post/:journalId/image', async (req, res) => {
     const { journalId } = req.params;
-    await ensureShareFonts();
     const debugMode = isShareImageDebugRequest(req);
+
+    // Serve from cache if available (skip for debug)
+    if (!debugMode) {
+        const cached = getShareImageCached(`post:${journalId}`);
+        if (cached) {
+            res.set('Content-Type', 'image/jpeg');
+            res.set('Cache-Control', 'public, max-age=3600');
+            return res.send(cached);
+        }
+    }
+
+    await ensureShareFonts();
     const debugPayload = {
         ok: false,
         fallback: false,
@@ -871,6 +917,7 @@ app.get('/share/post/:journalId/image', async (req, res) => {
             return sendShareImageDebug(res, debugPayload);
         }
 
+        setShareImageCached(`post:${journalId}`, ogImageBuffer);
         res.set('Content-Type', 'image/jpeg');
         res.set('Cache-Control', 'public, max-age=3600');
         return res.send(ogImageBuffer);

@@ -79,12 +79,14 @@ export const getPromptResponsesService = async (promptId, limit = 5, before = nu
     if (!before) {
         result.count = count || 0;
 
-        const { data: userIds } = await supabase
+        const { count: totalResponses } = await supabase
             .from('journals')
-            .select('user_id')
+            .select('id', { count: 'exact', head: true })
             .eq('prompt_id', promptId)
             .eq('privacy', 'public');
-        result.uniqueCount = new Set((userIds || []).map(r => r.user_id)).size;
+        // Approximate unique count — for prompts, count of responses is close to unique users
+        // since each user typically responds once
+        result.uniqueCount = totalResponses || 0;
     }
 
     return result;

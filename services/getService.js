@@ -1,5 +1,6 @@
 import supabase from "./supabase.js";
 import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
+import { createMediaResponsePayload, isPrimaryListableFileName } from "../utils/mediaVariants.js";
 
 const SEARCH_LIMIT_MAX = 20;
 const SEARCH_QUERY_MIN_LENGTH = 2;
@@ -36,6 +37,8 @@ const JOURNAL_METADATA_SELECT = `
     id,
     user_id,
     title,
+    preview_text,
+    thumbnail_url,
     post_type,
     created_at,
     privacy,
@@ -77,7 +80,53 @@ const COMMENT_WITH_USER_SELECT = `
     users(${OPINION_USER_SELECT})
 `;
 
-const attachRepostSources = async (journals) => {
+const JOURNAL_MEDIA_USAGE = {
+    compact: 'card',
+    feed: 'feed_banner',
+    detail: 'detail',
+};
+
+const decorateUserSummaryMedia = (user, usage = 'card') => {
+    if(!user || typeof user !== 'object'){
+        return user;
+    }
+
+    const avatarMedia = createMediaResponsePayload('avatars', user.image_url, usage);
+    return {
+        ...user,
+        image_url: avatarMedia?.preferred_url || user.image_url || null,
+        avatar_media: avatarMedia
+    };
+};
+
+const decorateJournalMedia = (journal, usage = JOURNAL_MEDIA_USAGE.compact, includeNestedSource = true) => {
+    if(!journal || typeof journal !== 'object'){
+        return journal;
+    }
+
+    const thumbnailMedia = createMediaResponsePayload('journal-images', journal.thumbnail_url, usage);
+    const decorated = {
+        ...journal,
+        thumbnail_url: thumbnailMedia?.preferred_url || journal.thumbnail_url || null,
+        thumbnail_media: thumbnailMedia,
+        users: decorateUserSummaryMedia(journal.users, usage === JOURNAL_MEDIA_USAGE.detail ? 'detail' : 'card')
+    };
+
+    if(includeNestedSource && journal.repost_source){
+        decorated.repost_source = decorateJournalMedia(journal.repost_source, JOURNAL_MEDIA_USAGE.compact, false);
+    }
+
+    return decorated;
+};
+
+const decorateJournalCollection = (journals, usage = JOURNAL_MEDIA_USAGE.compact) => {
+    if(!Array.isArray(journals)){
+        return [];
+    }
+    return journals.map((journal) => decorateJournalMedia(journal, usage));
+};
+
+const attachRepostSources = async (journals, { includeContent = false } = {}) => {
     const items = Array.isArray(journals) ? journals : [journals];
     const sourceIds = [...new Set(
         items
@@ -90,9 +139,13 @@ const attachRepostSources = async (journals) => {
         return journals;
     }
 
+    const cols = includeContent
+        ? 'id, title, content, preview_text, thumbnail_url, post_type, created_at, users(id, name, image_url, badge)'
+        : 'id, title, preview_text, thumbnail_url, post_type, created_at, users(id, name, image_url, badge)';
+
     const { data: sources, error } = await supabase
         .from('journals')
-        .select('id, title, content, post_type, created_at, users(id, name, image_url, badge)')
+        .select(cols)
         .in('id', sourceIds);
 
     if (error) {
@@ -279,11 +332,12 @@ const resolveMediaUrl = async(bucket, path) => {
 
 const listMediaChunkForBucket = async(bucket, userId, offset, limit) => {
     const folderPath = `user_id_${userId}`;
+    const listLimit = Math.max(limit * 4, limit);
 
     const {data: bucketItems, error: bucketError} = await supabase.storage
         .from(bucket)
         .list(folderPath, {
-            limit: limit,
+            limit: listLimit,
             offset: offset,
             sortBy: {column: 'name', order: 'desc'}
         });
@@ -300,7 +354,7 @@ const listMediaChunkForBucket = async(bucket, userId, offset, limit) => {
 
     const listedItems = Array.isArray(bucketItems) ? bucketItems : [];
     const normalizedItems = listedItems
-        .filter((item) => item?.name && hasSupportedMediaExtension(item.name))
+        .filter((item) => item?.name && hasSupportedMediaExtension(item.name) && isPrimaryListableFileName(item.name))
         .map((item) => {
             const path = `${folderPath}/${item.name}`;
             const createdAt = item.created_at || item.updated_at || null;
@@ -317,7 +371,7 @@ const listMediaChunkForBucket = async(bucket, userId, offset, limit) => {
     return {
         bucket: bucket,
         nextOffset: offset + listedItems.length,
-        exhausted: listedItems.length < limit,
+        exhausted: listedItems.length < listLimit,
         items: normalizedItems,
         error: null
     };
@@ -334,14 +388,20 @@ const hydrateMediaItems = async(items) => {
             return null;
         }
 
+        const mediaPayload = createMediaResponsePayload(item.bucket, url, 'card');
+
         return {
-            id: `${item.bucket}-${item.path}`,
+            id: `${item.bucket}-${mediaPayload?.path || item.path}`,
             bucket: item.bucket,
-            path: item.path,
+            path: mediaPayload?.path || item.path,
             name: item.name,
             createdAt: item.createdAt || null,
             timestamp: item.timestamp || 0,
-            url: url
+            url: mediaPayload?.preferred_url || url,
+            thumbnailUrl: mediaPayload?.thumbnail_url || url,
+            cardUrl: mediaPayload?.card_url || url,
+            detailUrl: mediaPayload?.detail_url || url,
+            originalUrl: mediaPayload?.original_url || url
         };
     }));
 
@@ -438,7 +498,7 @@ export const getJournalsService = async(limit, userId, before) => {
 
     let query = supabase
     .from('journals')
-    .select(JOURNAL_WITH_COUNTS_SELECT)
+    .select(JOURNAL_METADATA_WITH_COUNTS_SELECT)
     .eq('privacy', 'public')
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -513,10 +573,11 @@ export const getJournalsService = async(limit, userId, before) => {
         has_liked: userHasLikedSet.has(journal.id),
         has_bookmarked: userHasBookmarkedSet.has(journal.id),
         user_reaction: userReactionMap.get(journal.id) || null
-    }))
+    }));
+    const optimizedData = decorateJournalCollection(formattedData, JOURNAL_MEDIA_USAGE.feed);
 
     const hasMore = data?.length > parsedLimit;
-    const slicedData = hasMore ? formattedData.slice(0, parsedLimit) : formattedData;
+    const slicedData = hasMore ? optimizedData.slice(0, parsedLimit) : optimizedData;
 
     const journalData = {
         data: slicedData,
@@ -556,9 +617,9 @@ export const getFollowingFeedService = async(limit, userId, before) => {
         id: row.id,
         user_id: row.user_id,
         title: row.title,
-        content: row.content,
+        preview_text: row.preview_text || '',
+        thumbnail_url: row.thumbnail_url || null,
         post_type: row.post_type,
-
         created_at: row.created_at,
         privacy: row.privacy,
         views: row.views,
@@ -593,9 +654,10 @@ export const getFollowingFeedService = async(limit, userId, before) => {
         has_bookmarked: userHasBookmarkedSet.has(journal.id),
         user_reaction: userReactionMap.get(journal.id) || null
     }));
+    const optimizedData = decorateJournalCollection(formattedData, JOURNAL_MEDIA_USAGE.feed);
 
     const hasMore = data.length > parsedLimit;
-    const slicedData = hasMore ? formattedData.slice(0, parsedLimit) : formattedData;
+    const slicedData = hasMore ? optimizedData.slice(0, parsedLimit) : optimizedData;
 
     return { data: slicedData, hasMore };
 }
@@ -631,7 +693,8 @@ export const getForYouFeedService = async (limit, userId, offset) => {
         id: row.id,
         user_id: row.user_id,
         title: row.title,
-        content: row.content,
+        preview_text: row.preview_text || '',
+        thumbnail_url: row.thumbnail_url || null,
         post_type: row.post_type,
         created_at: row.created_at,
         privacy: row.privacy,
@@ -667,9 +730,10 @@ export const getForYouFeedService = async (limit, userId, offset) => {
         has_bookmarked: userHasBookmarkedSet.has(journal.id),
         user_reaction: userReactionMap.get(journal.id) || null
     }));
+    const optimizedData = decorateJournalCollection(formattedData, JOURNAL_MEDIA_USAGE.feed);
 
     const hasMore = data.length > parsedLimit;
-    const slicedData = hasMore ? formattedData.slice(0, parsedLimit) : formattedData;
+    const slicedData = hasMore ? optimizedData.slice(0, parsedLimit) : optimizedData;
 
     return { data: slicedData, hasMore };
 }
@@ -699,9 +763,9 @@ export const getMonthlyHottestJournalsService = async(limit, userId) => {
         id: row.id,
         user_id: row.user_id,
         title: row.title,
-        content: row.content,
+        preview_text: row.preview_text || '',
+        thumbnail_url: row.thumbnail_url || null,
         post_type: row.post_type,
-
         created_at: row.created_at,
         privacy: row.privacy,
         views: row.views,
@@ -721,20 +785,21 @@ export const getMonthlyHottestJournalsService = async(limit, userId) => {
     }));
 
     const journalsWithInteractions = await attachUserInteractionFlags(journals, userId);
+    const optimizedJournals = decorateJournalCollection(journalsWithInteractions, JOURNAL_MEDIA_USAGE.feed);
 
     return {
-        data: journalsWithInteractions,
+        data: optimizedJournals,
         period: {
             startUtc: monthStartUtc.toISOString(),
             endUtc: nextMonthStartUtc.toISOString(),
             timezone: 'UTC'
         },
-        totalCandidates: journalsWithInteractions.length
+        totalCandidates: optimizedJournals.length
     };
 }
 
 
-export const getJournalByIdService = async (journalId, userId) => {
+export const getJournalByIdService = async (journalId, userId, { includeRepostContent = false } = {}) => {
     if (!journalId) {
         console.error('journalId is undefined');
         throw { status: 400, error: 'journalId is undefined' };
@@ -756,7 +821,7 @@ export const getJournalByIdService = async (journalId, userId) => {
         return null;
     }
 
-    await attachRepostSources(journal);
+    await attachRepostSources(journal, { includeContent: includeRepostContent });
 
     let hasLiked = false;
     let hasBookmarked = false;
@@ -795,12 +860,36 @@ export const getJournalByIdService = async (journalId, userId) => {
         userReaction = reactionResult.data?.reaction_type || null;
     }
 
-    return {
+    return decorateJournalMedia({
         ...journal,
         has_liked: hasLiked,
         has_bookmarked: hasBookmarked,
         user_reaction: userReaction
-    };
+    }, JOURNAL_MEDIA_USAGE.detail);
+}
+
+export const getJournalContentService = async (journalId, userId) => {
+    if (!journalId || !userId) {
+        throw { status: 400, error: 'journalId and userId are required' };
+    }
+
+    const { data, error } = await supabase
+        .from('journals')
+        .select('id, content, title')
+        .eq('id', journalId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (error) {
+        console.error('supabase error fetching journal content:', error.message);
+        throw { status: 500, error: 'supabase error fetching journal content' };
+    }
+
+    if (!data) {
+        return null;
+    }
+
+    return data;
 }
 
 export const getUserJournalsService = async(limit, before, userId) =>{
@@ -818,7 +907,7 @@ export const getUserJournalsService = async(limit, before, userId) =>{
 
     let query = supabase
     .from('journals')
-    .select(JOURNAL_WITH_COUNTS_SELECT)
+    .select(JOURNAL_METADATA_WITH_COUNTS_SELECT)
     .eq('user_id', userId)
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
@@ -889,10 +978,11 @@ export const getUserJournalsService = async(limit, before, userId) =>{
         has_liked: userLikesSet.has(journal.id),
         has_bookmarked: userBookmarksSet.has(journal.id),
         user_reaction: userReactionMap.get(journal.id) || null
-    }))
+    }));
+    const optimizedData = decorateJournalCollection(formattedData, JOURNAL_MEDIA_USAGE.feed);
 
     const hasMore = journals.length > parsedLimit;
-    const slicedData = hasMore ? formattedData.slice(0, parsedLimit) : formattedData;
+    const slicedData = hasMore ? optimizedData.slice(0, parsedLimit) : optimizedData;
 
     const journalData = {data: slicedData, hasMore: hasMore};
 
@@ -914,7 +1004,7 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
 
     let query = supabase
     .from('journals')
-    .select(JOURNAL_WITH_COUNTS_SELECT)
+    .select(JOURNAL_METADATA_WITH_COUNTS_SELECT)
     .eq('user_id', userId)
     .eq('privacy', 'public')
     .order('created_at', {ascending: false})
@@ -986,11 +1076,12 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
         has_liked: userLikesSet.has(j.id),
         has_bookmarked: userBookmarksSet.has(j.id),
         user_reaction: userReactionMap.get(j.id) || null
-    }))
+    }));
+    const optimizedData = decorateJournalCollection(formattedData, JOURNAL_MEDIA_USAGE.feed);
 
     const hasMore = journals?.length > parsedLimit;
 
-    const slicedData = hasMore ? formattedData.slice(0, parsedLimit) : formattedData;
+    const slicedData = hasMore ? optimizedData.slice(0, parsedLimit) : optimizedData;
 
     const data = {data: slicedData, hasMore: hasMore}
     return data;
@@ -1118,7 +1209,7 @@ export const getBookmarksService = async(userId, before, limit) => {
     .from('bookmarks')
     .select(`id, created_at, journal_id,
         journals(
-        id, created_at, user_id, content, title, post_type,
+        id, created_at, user_id, title, preview_text, thumbnail_url, post_type,
         comment_count: comments(count),
         bookmark_count: bookmarks(count),
 
@@ -1187,9 +1278,10 @@ export const getBookmarksService = async(userId, before, limit) => {
 
     const formattedData = bookMarksData.map((b) => ({
         ...b,
+        journals: decorateJournalMedia(b.journals, JOURNAL_MEDIA_USAGE.feed, false),
         has_liked: userHasLikedSet.has(b.journals.id),
         has_bookmarked: userHasBookmarkedSet.has(b.journals.id),
-    }))
+    }));
 
     const slicedData = hasMore ? formattedData.splice(0, paresedLimit) : formattedData;
 
@@ -1246,7 +1338,7 @@ export const searchUsersService = async(query, limit = 10) => {
     const hasMore = users.length > parsedLimit;
 
     return {
-        data: hasMore ? users.slice(0, parsedLimit) : users,
+        data: (hasMore ? users.slice(0, parsedLimit) : users).map((user) => decorateUserSummaryMedia(user, 'card')),
         hasMore: hasMore
     };
 }
@@ -1261,11 +1353,12 @@ export const searchFollowingUsersService = async(userId, query, limit = 10) => {
         throw {status: 400, error: `limit should be an integer between 1 and ${SEARCH_LIMIT_MAX}`};
     }
 
-    // Get IDs of users this person follows
+    // Get IDs of users this person follows (capped to prevent massive IN clauses)
     const {data: followRows, error: followError} = await supabase
         .from('follows')
         .select('following_id')
-        .eq('follower_id', userId);
+        .eq('follower_id', userId)
+        .limit(2000);
 
     if(followError){
         console.error('error fetching follows:', followError.message);
@@ -1294,7 +1387,7 @@ export const searchFollowingUsersService = async(userId, query, limit = 10) => {
             throw {status: 500, error: 'error fetching followed users'};
         }
 
-        return {data: data || []};
+        return {data: (data || []).map((user) => decorateUserSummaryMedia(user, 'card'))};
     }
 
     const escapedQuery = normalizedQuery.replace(/[%_]/g, (match) => `\\${match}`);
@@ -1325,7 +1418,7 @@ export const searchFollowingUsersService = async(userId, query, limit = 10) => {
         if(!userMap.has(user.id)) userMap.set(user.id, user);
     });
 
-    return {data: [...userMap.values()].slice(0, parsedLimit)};
+    return {data: [...userMap.values()].slice(0, parsedLimit).map((user) => decorateUserSummaryMedia(user, 'card'))};
 }
 
 export const searchJournalsService = async(query, limit, userId) => {
@@ -1341,7 +1434,7 @@ export const searchJournalsService = async(query, limit, userId) => {
     const parsedLimit = parseInt(limit);
     const fetchLimit = Math.min(parsedLimit * 3, 60);
 
-    const selectColumns = JOURNAL_WITH_COUNTS_SELECT;
+    const selectColumns = JOURNAL_METADATA_WITH_COUNTS_SELECT;
 
     // Prefer semantic retrieval. If pgvector RPC is unavailable or errors,
     // fallback to keyword search so endpoint still returns useful data.
@@ -1384,8 +1477,10 @@ export const searchJournalsService = async(query, limit, userId) => {
                 const withInteraction = await attachUserInteractionFlags(orderedSemantic, userId);
                 const hasMore = withInteraction.length > parsedLimit;
 
+                const optimizedData = decorateJournalCollection(withInteraction, JOURNAL_MEDIA_USAGE.feed);
+
                 return {
-                    data: hasMore ? withInteraction.slice(0, parsedLimit) : withInteraction,
+                    data: hasMore ? optimizedData.slice(0, parsedLimit) : optimizedData,
                     hasMore: hasMore,
                     mode: 'semantic'
                 };
@@ -1436,8 +1531,10 @@ export const searchJournalsService = async(query, limit, userId) => {
     const withInteraction = await attachUserInteractionFlags(keywordJournals || [], userId);
     const hasMore = withInteraction.length > parsedLimit;
 
+    const optimizedData = decorateJournalCollection(withInteraction, JOURNAL_MEDIA_USAGE.feed);
+
     return {
-        data: hasMore ? withInteraction.slice(0, parsedLimit) : withInteraction,
+        data: hasMore ? optimizedData.slice(0, parsedLimit) : optimizedData,
         hasMore: hasMore,
         mode: 'keyword'
     };

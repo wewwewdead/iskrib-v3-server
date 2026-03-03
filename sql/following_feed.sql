@@ -21,9 +21,9 @@ RETURNS TABLE (
     id UUID,
     user_id UUID,
     title TEXT,
-    content JSONB,
+    preview_text TEXT,
+    thumbnail_url TEXT,
     post_type TEXT,
-    canvas_doc JSONB,
     created_at TIMESTAMPTZ,
     privacy TEXT,
     views INT,
@@ -49,9 +49,9 @@ AS $$
         j.id,
         j.user_id,
         j.title,
-        j.content::JSONB,
+        j.preview_text,
+        j.thumbnail_url,
         j.post_type,
-        j.canvas_doc,
         j.created_at,
         j.privacy,
         j.views,
@@ -63,10 +63,10 @@ AS $$
         u.image_url AS user_image_url,
         u.badge AS user_badge,
         u.id AS user_obj_id,
-        (SELECT COUNT(*) FROM public.likes l WHERE l.journal_id = j.id) AS like_count,
-        (SELECT COUNT(*) FROM public.reactions r WHERE r.journal_id = j.id) AS reaction_count,
-        (SELECT COUNT(*) FROM public.comments c WHERE c.post_id = j.id) AS comment_count,
-        (SELECT COUNT(*) FROM public.bookmarks b WHERE b.journal_id = j.id) AS bookmark_count
+        j.cached_reaction_count::bigint AS like_count,
+        j.cached_reaction_count::bigint AS reaction_count,
+        j.cached_comment_count::bigint AS comment_count,
+        j.cached_bookmark_count::bigint AS bookmark_count
     FROM public.journals j
     INNER JOIN public.follows f ON f.following_id = j.user_id AND f.follower_id = p_user_id
     LEFT JOIN public.users u ON u.id = j.user_id
@@ -77,6 +77,6 @@ AS $$
 $$;
 
 
-CREATE INDEX idx_journals_following_feed
+CREATE INDEX IF NOT EXISTS idx_journals_following_feed
   ON journals(user_id, privacy, created_at DESC)
   WHERE privacy = 'public';

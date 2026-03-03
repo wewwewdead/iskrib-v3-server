@@ -1,4 +1,4 @@
-import { getBookmarksService, getCommentsService, getFollowingFeedService, getForYouFeedService, getJournalByIdService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchFollowingUsersService, searchJournalsService, searchUsersService } from "../services/getService.js";
+import { getBookmarksService, getCommentsService, getFollowingFeedService, getForYouFeedService, getJournalByIdService, getJournalContentService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchFollowingUsersService, searchJournalsService, searchUsersService } from "../services/getService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -93,10 +93,12 @@ export const getBookmarksController = async(req, res) =>{
 
 export const getJournalByIdController = async (req, res) => {
     const { journalId } = req.params;
-    const { userId } = req.query;
+    const { userId, includeRepostContent } = req.query;
 
     try {
-        const journal = await getJournalByIdService(journalId, userId);
+        const journal = await getJournalByIdService(journalId, userId, {
+            includeRepostContent: String(includeRepostContent).toLowerCase() === 'true'
+        });
         if (!journal) {
             return res.status(404).json({ error: 'journal not found' });
         }
@@ -104,6 +106,22 @@ export const getJournalByIdController = async (req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(500).json({ error: 'failed to fetch journal' });
+    }
+}
+
+export const getJournalContentController = async (req, res) => {
+    const { journalId } = req.params;
+    const userId = req.user?.id;
+
+    try {
+        const journal = await getJournalContentService(journalId, userId);
+        if (!journal) {
+            return res.status(404).json({ error: 'journal not found' });
+        }
+        return res.status(200).json({ journal });
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({ error: error?.error || 'failed to fetch journal content' });
     }
 }
 

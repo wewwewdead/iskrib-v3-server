@@ -1,4 +1,5 @@
 import supabase from "./supabase.js";
+import { buildPathMatcher, listVariantPathsForDeletion } from "../utils/mediaVariants.js";
 
 const ALLOWED_MEDIA_BUCKETS = new Set(["background", "journal-images", "avatars"]);
 
@@ -47,6 +48,11 @@ const doesUrlMatchDeletedPath = (candidateUrl, bucket, path, deletedPublicUrl = 
         return true;
     }
 
+    const variantMatcher = buildPathMatcher(path);
+    if(variantMatcher){
+        return variantMatcher.test(normalizedCandidateUrl);
+    }
+
     return normalizedCandidateUrl.endsWith(`/${bucket}/${path}`);
 };
 
@@ -61,9 +67,25 @@ export const deleteJournalImageService = async(userId, filepath) =>{
         throw {status: 400, error: 'filepath is undefined'}
     }
 
+    const normalizedPaths = (Array.isArray(filepath) ? filepath : [filepath])
+        .filter((path) => typeof path === 'string' && path.trim())
+        .flatMap((path) => listVariantPathsForDeletion(path.trim()));
+
+    if(normalizedPaths.length === 0){
+        console.error('filepath is undefined');
+        throw {status: 400, error: 'filepath is undefined'};
+    }
+
+    const expectedPrefix = `user_id_${userId}/`;
+    const hasForbiddenPath = normalizedPaths.some((path) => !path.startsWith(expectedPrefix));
+    if(hasForbiddenPath){
+        console.error('forbidden journal image path for user');
+        throw {status: 403, error: 'forbidden journal image path'};
+    }
+
     const {error} = await supabase.storage
         .from('journal-images')
-        .remove(filepath);
+        .remove([...new Set(normalizedPaths)]);
 
     if(error){
         console.error('supabase error while deleting image:', error.message);
@@ -101,9 +123,12 @@ export const deleteProfileMediaImageService = async(userId, bucket, path, url = 
         throw {status: 403, error: "forbidden media path"};
     }
 
+    const siblingPaths = listVariantPathsForDeletion(normalizedPath)
+        .filter((candidatePath) => candidatePath.startsWith(expectedPrefix));
+
     const {error: removeError} = await supabase.storage
         .from(bucket)
-        .remove([normalizedPath]);
+        .remove([...new Set(siblingPaths.length > 0 ? siblingPaths : [normalizedPath])]);
 
     if(removeError){
         console.error("supabase error while deleting profile media image:", removeError.message);

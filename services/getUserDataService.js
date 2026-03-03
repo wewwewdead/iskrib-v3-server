@@ -1,4 +1,26 @@
 import supabase from "./supabase.js"
+import { createMediaResponsePayload } from "../utils/mediaVariants.js";
+
+const USER_PROFILE_SELECT = `
+    id, name, bio, image_url, badge, username,
+    background, profile_font_color, dominant_colors, secondary_colors,
+    writing_interests, writing_goal,
+    onboarding_completed, onboarding_completed_at,
+    created_at
+`;
+
+const decorateProfileUser = (user) => {
+    if(!user){
+        return user;
+    }
+
+    const avatarMedia = createMediaResponsePayload('avatars', user.image_url, 'detail');
+    return {
+        ...user,
+        image_url: avatarMedia?.preferred_url || user.image_url || null,
+        avatar_media: avatarMedia
+    };
+};
 
 export const getUserByUsernameService = async(username) => {
     if(!username || typeof username !== 'string'){
@@ -9,7 +31,7 @@ export const getUserByUsernameService = async(username) => {
 
     const { data: users, error: userError } = await supabase
         .from('users')
-        .select('*')
+        .select(USER_PROFILE_SELECT)
         .ilike('username', normalizedUsername)
         .limit(1);
 
@@ -22,16 +44,16 @@ export const getUserByUsernameService = async(username) => {
         throw {status: 404, message: 'user not found'};
     }
 
-    const user = users[0];
+    const user = decorateProfileUser(users[0]);
 
     const followerCountPromise = supabase
         .from('follows')
-        .select('*', {count: 'exact', head: true})
+        .select('id', {count: 'exact', head: true})
         .eq('following_id', user.id);
 
     const followingCountPromise = supabase
         .from('follows')
-        .select('*', {count: 'exact', head: true})
+        .select('id', {count: 'exact', head: true})
         .eq('follower_id', user.id);
 
     const [followerCountResult, followingCountResult] = await Promise.all([
@@ -58,17 +80,17 @@ export const getUserDataService = async(userId) =>{
     }
     const userDataPromise = supabase
     .from('users')
-    .select('*')
+    .select(USER_PROFILE_SELECT)
     .eq('id', userId)
 
     const followerCountPromise = supabase
     .from('follows')
-    .select('*', {count: 'exact', head: true})
+    .select('id', {count: 'exact', head: true})
     .eq('following_id', userId)
 
     const followingCountPromise = supabase
     .from('follows')
-    .select('*', {count: 'exact', head: true})
+    .select('id', {count: 'exact', head: true})
     .eq('follower_id', userId)
 
     const [userDataResult, followerCountResult, followingCountResult] = await Promise.all([
@@ -83,6 +105,10 @@ export const getUserDataService = async(userId) =>{
         console.error('supabase error while fetching user data:', errorUserData || errorFollowerCount || errorFollowingCount)
         throw {status: 400, message: 'supabase error while fetching user data'}
     }
-    const data = {userData: userData, followerCount: followerCount, followingCount: followingCount}
+    const data = {
+        userData: Array.isArray(userData) ? userData.map((user) => decorateProfileUser(user)) : userData,
+        followerCount: followerCount,
+        followingCount: followingCount
+    }
     return data;
 }
