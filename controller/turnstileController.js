@@ -1,9 +1,9 @@
-import { verfifyTurnstileService } from "../services/turnstileService.js";
+import { verifyTurnstileService } from "../services/turnstileService.js";
 
-export const verfifyTurnstileController = async(req, res) =>{
+export const verifyTurnstileController = async(req, res) =>{
     const {token} = req.body;
     try {
-        await verfifyTurnstileService(token);
+        await verifyTurnstileService(token);
         return res.status(200).json({success: true})
     } catch (error) {
         console.error(error);

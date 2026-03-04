@@ -111,7 +111,7 @@ export const getJournalByIdController = async (req, res) => {
 
 export const getJournalContentController = async (req, res) => {
     const { journalId } = req.params;
-    const userId = req.user?.id;
+    const userId = req.userId;
 
     try {
         const journal = await getJournalContentService(journalId, userId);

@@ -1,28 +1,10 @@
 import supabase from "./supabase.js";
+import { createLRUCache } from "../utils/LRUCache.js";
 
 // ── In-memory LRU cache for related posts ──
-const RELATED_CACHE_MAX = 200;
-const RELATED_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const _relatedCache = new Map();
-const getRelatedCached = (key) => {
-    const entry = _relatedCache.get(key);
-    if (!entry) return null;
-    if (Date.now() - entry.ts > RELATED_CACHE_TTL_MS) {
-        _relatedCache.delete(key);
-        return null;
-    }
-    // LRU refresh — move to end
-    _relatedCache.delete(key);
-    _relatedCache.set(key, entry);
-    return entry.value;
-};
-const setRelatedCached = (key, value) => {
-    if (_relatedCache.size >= RELATED_CACHE_MAX) {
-        const firstKey = _relatedCache.keys().next().value;
-        _relatedCache.delete(firstKey);
-    }
-    _relatedCache.set(key, { value, ts: Date.now() });
-};
+const relatedCache = createLRUCache(200, 10 * 60 * 1000); // 200 entries, 10min TTL
+const getRelatedCached = (key) => relatedCache.get(key);
+const setRelatedCached = (key, value) => relatedCache.set(key, value);
 
 const CONFIDENCE_TIERS = {
     high:   { threshold: 0.60, maxResults: 5, label: 'high' },

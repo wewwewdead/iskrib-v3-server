@@ -39,6 +39,7 @@ const JOURNAL_METADATA_SELECT = `
     title,
     preview_text,
     thumbnail_url,
+    reading_time,
     post_type,
     created_at,
     privacy,
@@ -490,8 +491,8 @@ export const getProfileMediaService = async(userId, limit = PROFILE_MEDIA_LIMIT_
 
 export const getJournalsService = async(limit, userId, before) => {
     if(isNaN(limit) || limit > 20 || limit < 1){
-        console.error('limit should be intiger, not below 1 and higher than 20');
-        throw {status: 400, error: 'limit should be intiger, not below 1 and higher than 20'};
+        console.error('limit should be integer, not below 1 and higher than 20');
+        throw {status: 400, error: 'limit should be integer, not below 1 and higher than 20'};
     }
 
     const parsedLimit = parseInt(limit);
@@ -899,8 +900,8 @@ export const getUserJournalsService = async(limit, before, userId) =>{
     }
 
     if(isNaN(limit)|| limit > 20 || limit < 1){
-        console.error('limit should be intiger and not more than 20 and less than 1')
-        throw {status: 400, error: 'limit should be intiger and not more than 20 and less than 1'};
+        console.error('limit should be integer and not more than 20 and less than 1')
+        throw {status: 400, error: 'limit should be integer and not more than 20 and less than 1'};
     }
 
     const parsedLimit = parseInt(limit);
@@ -996,8 +997,8 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
     }
 
     if(isNaN(limit) || limit > 20 || limit < 1){
-        console.error('lmit must be an intiger and not more than 20 and less than 1');
-        throw {status: 400, error: 'lmit must be an intiger and not more than 20 and less than 1'};
+        console.error('lmit must be an integer and not more than 20 and less than 1');
+        throw {status: 400, error: 'lmit must be an integer and not more than 20 and less than 1'};
     }
 
     const parsedLimit = parseInt(limit);
@@ -1117,8 +1118,8 @@ export const getCommentsService = async(postId, limit, before, parentId) => {
     }
 
     if(isNaN(limit) || limit > 20 || limit < 1){
-        console.error('limit must be a intiger and not more than 20 or less than 1');
-        throw {status: 400, error: 'limit must be a intiger and not more than 20 or less than 1'}
+        console.error('limit must be a integer and not more than 20 or less than 1');
+        throw {status: 400, error: 'limit must be a integer and not more than 20 or less than 1'}
     }
 
     const parsedLimit = parseInt(limit);
@@ -1204,7 +1205,7 @@ export const getBookmarksService = async(userId, before, limit) => {
         console.error('limit must be an integer and not more than 20 or less than 1');
         throw {status: 400, error: 'limit must be an integer and not more than 20 or less than 1'};
     }
-    const paresedLimit = parseInt(limit);
+    const parsedLimit = parseInt(limit);
     let query = supabase
     .from('bookmarks')
     .select(`id, created_at, journal_id,
@@ -1273,7 +1274,7 @@ export const getBookmarksService = async(userId, before, limit) => {
     const userHasLikedSet = new Set(hasLikedResult.map((journal) => journal.journal_id) || []);
     const userHasBookmarkedSet = new Set(hasBookMarkedResult.map((bookmark) => bookmark.journal_id) || []);
 
-    const hasMore = bookMarksData.length > paresedLimit;
+    const hasMore = bookMarksData.length > parsedLimit;
 
 
     const formattedData = bookMarksData.map((b) => ({
@@ -1283,7 +1284,7 @@ export const getBookmarksService = async(userId, before, limit) => {
         has_bookmarked: userHasBookmarkedSet.has(b.journals.id),
     }));
 
-    const slicedData = hasMore ? formattedData.splice(0, paresedLimit) : formattedData;
+    const slicedData = hasMore ? formattedData.splice(0, parsedLimit) : formattedData;
 
     return {
         bookmarks: slicedData,

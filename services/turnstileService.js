@@ -1,5 +1,5 @@
 
-export const verfifyTurnstileService = async(token) =>{
+export const verifyTurnstileService = async(token) =>{
     if(!token) {
         throw {status: 400, message: 'No token provided'}
     }

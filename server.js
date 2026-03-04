@@ -11,10 +11,12 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import router from "./routes/routes.js";
 import sitemapRouter from "./routes/sitemapRoutes.js";
+import { generalLimiter } from "./middleware/rateLimiter.js";
 import supabase from "./services/supabase.js";
 import { SITE_URL as SITE_URL_SHARED, makePostUrl as makePostUrlShared } from "./utils/urlUtils.js";
 import { getUserByUsernameService } from "./services/getUserDataService.js";
 import { bootstrapTopicEmbeddings } from "./services/interestEmbeddingService.js";
+import { createLRUCache } from "./utils/LRUCache.js";
 
 // ── Cluster mode: fork one worker per CPU core ──
 // Set CLUSTER_ENABLED=true in production to use all CPU cores.
@@ -87,29 +89,9 @@ const META_FB_APP_ID = (process.env.META_FB_APP_ID || process.env.FB_APP_ID || p
 const SHARE_IMAGE_DEBUG = false;
 
 // ── In-memory LRU cache for generated share images ──
-const SHARE_IMAGE_CACHE_MAX = 200;
-const SHARE_IMAGE_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-const shareImageCache = new Map();
-const getShareImageCached = (key) => {
-    const entry = shareImageCache.get(key);
-    if (!entry) return null;
-    if (Date.now() - entry.ts > SHARE_IMAGE_CACHE_TTL_MS) {
-        shareImageCache.delete(key);
-        return null;
-    }
-    // Move to end (LRU refresh)
-    shareImageCache.delete(key);
-    shareImageCache.set(key, entry);
-    return entry.buf;
-};
-const setShareImageCached = (key, buf) => {
-    if (shareImageCache.size >= SHARE_IMAGE_CACHE_MAX) {
-        // Evict oldest (first key)
-        const firstKey = shareImageCache.keys().next().value;
-        shareImageCache.delete(firstKey);
-    }
-    shareImageCache.set(key, { buf, ts: Date.now() });
-};
+const shareImageCache = createLRUCache(200, 60 * 60 * 1000); // 200 entries, 1h TTL
+const getShareImageCached = (key) => shareImageCache.get(key);
+const setShareImageCached = (key, buf) => shareImageCache.set(key, buf);
 const SUPABASE_URL = (process.env.SUPABASE_URL || '').trim();
 const PUBLIC_CACHE_CONTROL_VALUE = 'public, max-age=10, s-maxage=10, stale-while-revalidate=30';
 const PRIVATE_NO_STORE_CACHE_CONTROL = 'private, no-store';
@@ -536,8 +518,13 @@ const sendShareImageDebug = (res, payload) => {
     return res.status(200).json(payload);
 };
 
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'https://iskrib.com,https://iskrib-v3-client-side.onrender.com,http://localhost:5173')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
 const corsOptions = {
-    origin: ['https://iskrib.com', 'https://iskrib-v3-client-side.onrender.com', 'http://localhost:5173'],
+    origin: CORS_ORIGINS,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true,
@@ -639,6 +626,7 @@ app.use((req, res, next) => {
     return next();
 });
 
+app.use(generalLimiter);
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({extended: true, limit: "2mb", parameterLimit: 1000}));
 

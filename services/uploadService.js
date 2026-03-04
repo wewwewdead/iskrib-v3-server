@@ -1,5 +1,5 @@
 import sharp from "sharp";
-import { imageUploader } from "../routes/routes.js";
+import { imageUploader } from "../utils/imageUploader.js";
 import supabase from "./supabase.js";
 import ParseContent from "../utils/parseData.js";
 import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
@@ -135,7 +135,14 @@ export const updateUserDataService = async(name, bio, profileBg, dominantColors,
         throw {status: 400, error: 'error: bio should be a string and not more than 150 characters'}
     }
 
-    const parsedProfileBg = profileBg ? JSON.parse(profileBg) : undefined;
+    let parsedProfileBg;
+    if (profileBg) {
+        try {
+            parsedProfileBg = JSON.parse(profileBg);
+        } catch {
+            throw { status: 400, error: 'invalid profileBg JSON' };
+        }
+    }
     const payload = {
         name: name,
         bio: bio,
@@ -216,7 +223,7 @@ export const uploadJournalImageService = async(image, userId) =>{
         return data_url;
     } else{
         console.error('error while uploading journal images');
-        throw {statu: 500, error: 'error while uploading journal images'};
+        throw {status: 500, error: 'error while uploading journal images'};
     }
 }
 
@@ -261,6 +268,7 @@ export const uploadJournalContentService = async(
     const embeddingBody = parseData.wholeText || '';
     const preview_text = parseData.slicedText || '';
     const thumbnail_url = parseData.firstImage?.src || null;
+    const reading_time = Math.ceil((embeddingBody.trim().split(/\s+/).length) / 150) || 1;
     const payload = {
         user_id: userId,
         title: trimmedTitle,
@@ -268,6 +276,7 @@ export const uploadJournalContentService = async(
         content: content,
         preview_text,
         thumbnail_url,
+        reading_time,
     };
 
     const embeddingResult = await GenerateEmbeddings(trimmedTitle, embeddingBody);
@@ -422,6 +431,7 @@ export const updateJournalService = async(content, title, journalId, userId) => 
     const embeddingBody = parseData.wholeText || '';
     const preview_text = parseData.slicedText || '';
     const thumbnail_url = parseData.firstImage?.src || null;
+    const reading_time = Math.ceil((embeddingBody.trim().split(/\s+/).length) / 150) || 1;
     const embeddings = await GenerateEmbeddings(resolvedTitle, embeddingBody);
 
     if(!embeddings || !Array.isArray(embeddings) || embeddings.length === 0){
@@ -436,6 +446,7 @@ export const updateJournalService = async(content, title, journalId, userId) => 
         embeddings: embeddings,
         preview_text,
         thumbnail_url,
+        reading_time,
     }
 
     const {data, error} = await supabase

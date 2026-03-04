@@ -1,16 +1,17 @@
 import express from "express";
 import supabase from "../services/supabase.js";
 import multer from "multer";
-import sharp from 'sharp';
+import { writeLimiter, authLimiter, uploadLimiter, searchLimiter } from "../middleware/rateLimiter.js";
+import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { getUserByUsernameService } from "../services/getUserDataService.js";
-import { verfifyTurnstileController } from "../controller/turnstileController.js";
+import { verifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, completeOnboardingController, updateInterestsController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
 import { getBookmarksController, getCommentsController, getFollowingFeedController, getForYouFeedController, getJournalByIdController, getJournalContentController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchFollowingUsersController, searchJournalsController, searchUsersController } from "../controller/getController.js";
-import { addBoorkmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
+import { addBookmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
 import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
 import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
 import { toggleVoteController, toggleLibraryController, getMyLibraryController, getCommentsController as getStoryCommentsController, getCommentCountsController, addCommentController as addStoryCommentController, saveProgressController, getProgressController } from "../controller/storyInteractController.js";
@@ -20,7 +21,7 @@ import { getStreakService, recordPublishForStreak } from "../services/streakServ
 import { getTodaysPromptController, getPromptResponsesController } from "../controller/promptController.js";
 import { toggleReactionController, getPostReactionsController } from "../controller/reactionController.js";
 import { getWeeklyRecapController } from "../controller/recapController.js";
-import { MEDIA_VARIANT_CONFIG, createMediaResponsePayload, createVariantFileNames } from "../utils/mediaVariants.js";
+import { createMediaResponsePayload } from "../utils/mediaVariants.js";
 
 const router = express.Router();
 
@@ -28,63 +29,6 @@ const upload = multer({
     storage: multer.memoryStorage(),
     limits: {fileSize: 10 * 1024 * 1024},
 }).single('image');
-
-const extractBearerToken = (authHeader = "") => {
-    const trimmed = typeof authHeader === "string" ? authHeader.trim() : "";
-    if (!trimmed) return "";
-
-    const bearerMatch = trimmed.match(/^Bearer\s+(.+)$/i);
-    if (bearerMatch?.[1]) {
-        return bearerMatch[1].trim();
-    }
-
-    return trimmed;
-};
-
-const resolveAuthUser = async (token) => {
-    if (!token) {
-        return { user: null, error: null };
-    }
-
-    const { data: authData, error: authError } = await supabase.auth.getUser(token);
-    if (authError || !authData?.user?.id) {
-        return { user: null, error: authError || new Error("missing user id") };
-    }
-
-    return { user: authData.user, error: null };
-};
-
-const requireAuth = async (req, res, next) => {
-    const token = extractBearerToken(req.headers?.authorization);
-    if (!token) {
-        return res.status(401).json({ error: 'not authorized' });
-    }
-
-    const { user, error } = await resolveAuthUser(token);
-    if (error || !user?.id) {
-        console.error('auth middleware error:', error?.message || 'missing user id');
-        return res.status(401).json({ error: 'not authorized' });
-    }
-
-    req.userId = user.id;
-    req.authUser = user;
-    return next();
-};
-
-const optionalAuth = async (req, _res, next) => {
-    const token = extractBearerToken(req.headers?.authorization);
-    if (!token) {
-        return next();
-    }
-
-    const { user } = await resolveAuthUser(token);
-    if (user?.id) {
-        req.userId = user.id;
-        req.authUser = user;
-    }
-
-    return next();
-};
 
 const NOTIFICATION_LIMIT_MIN = 1;
 const NOTIFICATION_LIMIT_MAX = 20;
@@ -195,89 +139,26 @@ const parseLimitWithinRange = (value, min, max, fallback = null) => {
     return parsed;
 };
 
-export const imageUploader = async(file, userId, bucket) =>{
-    if(!file){
-        throw new Error('no file received');
-    }
-
-    const sourceBuffer = Buffer.isBuffer(file) ? file : file?.buffer;
-    if(!sourceBuffer){
-        throw new Error('invalid file payload');
-    }
-
-    const folderName = `user_id_${userId}`;
-    const baseFileName = `${Date.now()}_${crypto.randomUUID()}.webp`;
-    const variantFileNames = createVariantFileNames(baseFileName);
-    const bucketVariants = MEDIA_VARIANT_CONFIG[bucket];
-    if(!bucketVariants){
-        throw new Error(`unsupported bucket for upload: ${bucket}`);
-    }
-
-    const variantEntries = Object.entries(bucketVariants);
-    const renderedVariants = await Promise.all(
-        variantEntries.map(async([variantKey, sizeConfig]) => {
-            const renderedBuffer = await sharp(sourceBuffer)
-                .rotate()
-                .resize(sizeConfig.width, sizeConfig.height, { fit: sizeConfig.fit, withoutEnlargement: true })
-                .webp({ quality: variantKey === 'original' ? 82 : 78, effort: 4 })
-                .toBuffer();
-
-            return {
-                variantKey,
-                buffer: renderedBuffer,
-                filePath: `${folderName}/${variantFileNames[variantKey]}`
-            };
-        })
-    );
-
-    const uploadResults = await Promise.all(
-        renderedVariants.map(({ filePath, buffer }) => supabase.storage
-            .from(bucket)
-            .upload(filePath, buffer, {
-                contentType: 'image/webp',
-                cacheControl: '31536000',
-                upsert: true
-            }))
-    );
-
-    const failedUpload = uploadResults.find((result) => result.error);
-    if(failedUpload?.error){
-        console.error('supabase error while uploading image variants to supabase bucket', failedUpload.error);
-        throw new Error('error uploading image into supabase bucket');
-    }
-
-    const detailVariant = renderedVariants.find((entry) => entry.variantKey === 'detail');
-    const {data: data_url} = supabase.storage
-        .from(bucket)
-        .getPublicUrl(detailVariant?.filePath || `${folderName}/${variantFileNames.detail}`);
-
-    if(data_url?.publicUrl){
-        return data_url.publicUrl;
-    }
-
-    throw new Error('Error uploading the image');
-}
-
-router.post('/verify-turnstile', verfifyTurnstileController);
+router.post('/verify-turnstile', authLimiter, verifyTurnstileController);
 
 router.get('/getUserData', getUserDataController);
 
 router.get('/check-user', checkUserController);
 
-router.post('/upload-user-data', requireAuth, upload, uploadUserDataController);
+router.post('/upload-user-data', authLimiter, requireAuth, upload, uploadUserDataController);
 
 router.post('/update-user-data', requireAuth, upload, updateUserDataController);
 
 router.post('/updateFontColor', requireAuth, upload, updateFont);
 
-router.post('/uploadBackground', requireAuth, upload, uploadProfileBgController);
+router.post('/uploadBackground', uploadLimiter, requireAuth, upload, uploadProfileBgController);
 
-router.post('/save-journal-image', requireAuth, upload, uploadJournalImageController);
+router.post('/save-journal-image', uploadLimiter, requireAuth, upload, uploadJournalImageController);
 
 router.post('/delete-journal-images', requireAuth, upload, deleteJournalImageController);
 router.delete('/media/image', requireAuth, deleteProfileMediaImageController);
 
-router.post('/save-journal', requireAuth, upload, uploadJournalContentController);
+router.post('/save-journal', uploadLimiter, requireAuth, upload, uploadJournalContentController);
 
 router.post('/update-journal', requireAuth, upload, updateJournalController);
 
@@ -291,9 +172,9 @@ router.get('/journals/following', requireAuth, getFollowingFeedController);
 router.get('/journals/for-you', requireAuth, getForYouFeedController);
 router.get('/journals', getJournalsController);
 router.get('/journals/hottest-monthly', getMonthlyHottestJournalsController);
-router.get('/journals/search', searchJournalsController);
-router.get('/users/search', searchUsersController);
-router.get('/users/following/search', requireAuth, searchFollowingUsersController);
+router.get('/journals/search', searchLimiter, searchJournalsController);
+router.get('/users/search', searchLimiter, searchUsersController);
+router.get('/users/following/search', searchLimiter, requireAuth, searchFollowingUsersController);
 router.get('/journal/:journalId/related', getRelatedPostsController);
 router.get('/journal/:journalId/content', requireAuth, getJournalContentController);
 router.get('/journal/:journalId', getJournalByIdController);
@@ -307,23 +188,23 @@ router.get('/visitedUserJournals', getVisitedUserJournalsController);
 
 router.delete('/deleteJournal/:journalId', requireAuth, deleteJournalContent);
 
-router.post('/like', requireAuth, likeController);
+router.post('/like', writeLimiter, requireAuth, likeController);
 
-router.post('/repost', requireAuth, repostController);
+router.post('/repost', writeLimiter, requireAuth, repostController);
 
-router.post('/addComment', requireAuth, upload, addCommentController);
+router.post('/addComment', writeLimiter, requireAuth, upload, addCommentController);
 
 router.get('/getComments', getCommentsController);
 
-router.post('/addBoorkmark', requireAuth, upload, addBoorkmarkController);
+router.post('/addBookmark', writeLimiter, requireAuth, upload, addBookmarkController);
 
 router.get('/getBookmarks', requireAuth, getBookmarksController)
 
-router.post('/addFollows', requireAuth, upload, addFollowController);
+router.post('/addFollows', writeLimiter, requireAuth, upload, addFollowController);
 
 router.get('/getFollowsData', async(req, res) => {
     const {userId, loggedInUserId} = req.query;
-    if(!userId && !loggedInUserId) return res.status(400).json({error: 'userId or loggendUserId is undefined '});
+    if(!userId && !loggedInUserId) return res.status(400).json({error: 'userId or loggedInUserId is undefined '});
     // console.log(req.query)
     try {
         const followersCountPromise = supabase
@@ -681,10 +562,12 @@ router.post('/addViews', requireAuth, upload, async(req, res) => {
 
 router.post('/updatePrivacy', requireAuth, upload, async(req, res) => {
     const {journalId, privacy} = req.body;
-    // console.log(privacy)
     if(!journalId){
         console.error('no journalId')
         return res.status(400).json({error: 'no journalId'});
+    }
+    if(!['public', 'private'].includes(privacy)){
+        return res.status(400).json({error: 'invalid privacy value'});
     }
     const userId = req.userId;
 
@@ -702,7 +585,7 @@ router.post('/updatePrivacy', requireAuth, upload, async(req, res) => {
     return res.status(200).json({message: 'success'});
 })
 
-router.post('/addOpinion', requireAuth, upload, async(req, res) =>{
+router.post('/addOpinion', writeLimiter, requireAuth, upload, async(req, res) =>{
     const {opinion} = req.body;
     if(!opinion || opinion.length > 280){
         console.error('no opinion or opinion is over 280 characters');
@@ -718,7 +601,7 @@ router.post('/addOpinion', requireAuth, upload, async(req, res) =>{
     })
 
     if(error){
-        console.err('supabase error:', error.message);
+        console.error('supabase error:', error.message);
         return res.status(500).json({error: 'supabase error'})
     }
 
@@ -737,8 +620,8 @@ router.post('/addOpinion', requireAuth, upload, async(req, res) =>{
 router.get('/getOpinions', async(req, res) => {
     const {before, limit} = req.query;
 
-    const paresedLimit = parseInt(limit);
-    if(isNaN(paresedLimit) || paresedLimit > 20 || paresedLimit < 1) {
+    const parsedLimit = parseInt(limit);
+    if(isNaN(parsedLimit) || parsedLimit > 20 || parsedLimit < 1) {
         console.log('limit should be number or and it should not be between 1 - 20');
         return res.status(400).json({error: 'limit should be number and it should be between 1 - 20'});
     }
@@ -748,7 +631,7 @@ router.get('/getOpinions', async(req, res) => {
     .select(OPINION_LIST_SELECT)
     .is('parent_id', null)
     .order('id', {ascending: false})
-    .limit(paresedLimit + 1)
+    .limit(parsedLimit + 1)
 
     if(before) {
         query = query.lt('id', before);
@@ -761,8 +644,8 @@ router.get('/getOpinions', async(req, res) => {
         return res.status(500).json({error: 'supabase error on fetching opinions from database'});
     }
 
-    const hasMore = opinions?.length > paresedLimit;
-    const slicedData =  hasMore ? opinions.slice(0, paresedLimit) : opinions;
+    const hasMore = opinions?.length > parsedLimit;
+    const slicedData =  hasMore ? opinions.slice(0, parsedLimit) : opinions;
 
     return res.status(200).json({data: slicedData, hasMore: hasMore});
 })
@@ -895,8 +778,8 @@ router.get('/getPostReplies/:parent_id', async(req, res) => {
     const parsedLimit = parseInt(limit);
 
     if(isNaN(parsedLimit) || parsedLimit < 1 || parsedLimit > 20){
-        console.error('limit should be intiger or it should be between 1 to 20');
-        return res.status(400).json({error: 'limit should be intiger or it should be between 1 to 20'});
+        console.error('limit should be integer or it should be between 1 to 20');
+        return res.status(400).json({error: 'limit should be integer or it should be between 1 to 20'});
     }
 
     let query = supabase
@@ -913,7 +796,7 @@ router.get('/getPostReplies/:parent_id', async(req, res) => {
     const {data: getPostReplies, error: getPostRepliesError} = await query;
 
     if(getPostRepliesError){
-        console.error('supabase error while fetchind replies:', getPostRepliesError.message);
+        console.error('supabase error while fetching replies:', getPostRepliesError.message);
         return res.status(500).json({error: 'supabase error while getting post replies'});
     }
 
@@ -1043,7 +926,7 @@ router.post('/stories/:storyId/progress', requireAuth, saveProgressController);
 router.get('/stories/:storyId/progress', requireAuth, getProgressController);
 
 // ─── Reactions ───
-router.post('/reaction', requireAuth, toggleReactionController);
+router.post('/reaction', writeLimiter, requireAuth, toggleReactionController);
 router.get('/reactions/:journalId', getPostReactionsController);
 
 // ─── Daily Prompts ───

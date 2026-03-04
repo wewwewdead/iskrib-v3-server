@@ -73,7 +73,7 @@ export const uploadJournalImageController = async(req, res) =>{
         return res.status(200).json({img_url: image_url});
     } catch (error) {
         console.error(error);
-        throw {status: 500, error: 'error uploading journal images'}
+        return res.status(error?.status || 500).json({error: error?.error || 'error uploading journal images'});
     }
 }
 

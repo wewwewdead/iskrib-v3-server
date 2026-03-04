@@ -1,4 +1,4 @@
-import { addBoorkmarkSetvice, addCommentService, addFollowsService, likeService, repostService, uploadOpinionReplyService } from "../services/interactService.js";
+import { addBookmarkService, addCommentService, addFollowsService, likeService, repostService, uploadOpinionReplyService } from "../services/interactService.js";
 
 export const likeController = async(req, res) => {
     const {journalId, receiverId,} = req.body;
@@ -27,12 +27,12 @@ export const addCommentController = async(req, res) =>{
     }
 }
 
-export const addBoorkmarkController = async(req, res) =>{
+export const addBookmarkController = async(req, res) =>{
     const userId = req.userId;
     const {journalId} = req.body;
 
     try {
-        const response = await addBoorkmarkSetvice(userId, journalId);
+        const response = await addBookmarkService(userId, journalId);
         return res.status(200).json(response);
     } catch (error) {
         console.error(error);

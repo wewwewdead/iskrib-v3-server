@@ -1,5 +1,5 @@
 import supabase from "./supabase.js";
-import { imageUploader } from "../routes/routes.js";
+import { imageUploader } from "../utils/imageUploader.js";
 import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
 import { createMediaResponsePayload } from "../utils/mediaVariants.js";
 

@@ -25,7 +25,7 @@ export const likeService = async(journalId, receiverId, senderId) =>{
     }
 
     if(!existingLike){
-        const inserNotifPromise = supabase
+        const insertNotifPromise = supabase
         .from('notifications')
         .insert({
             sender_id: senderId,
@@ -35,7 +35,7 @@ export const likeService = async(journalId, receiverId, senderId) =>{
             read: false
         })
 
-        const inserLikePromise = supabase
+        const insertLikePromise = supabase
         .from('likes')
         .insert({
             user_id: senderId, 
@@ -43,8 +43,8 @@ export const likeService = async(journalId, receiverId, senderId) =>{
         })
 
         const [insertNotif, insertLike ] = await Promise.all([
-            isOwnContent ? Promise.resolve({error: null}) : inserNotifPromise,
-            inserLikePromise
+            isOwnContent ? Promise.resolve({error: null}) : insertNotifPromise,
+            insertLikePromise
         ])
 
         const {data: insertNotifcationResult, error: errorInsertNotificationResult} = insertNotif;
@@ -138,7 +138,7 @@ export const addCommentService = async(userId, comments, postId, receiverId, par
     return {message: 'success'};
 }
 
-export const addBoorkmarkSetvice = async(userId, journalId) =>{
+export const addBookmarkService = async(userId, journalId) =>{
     if(!userId){
         console.error('userId is undefined');
         throw {status: 400, error: 'userId is undefined'}
@@ -191,9 +191,9 @@ export const uploadOpinionReplyService = async(parent_id, opinion, user_id) =>{
         console.error('parentid or userid is undefined');
         throw {status: 400, error:'parentid or userid is undefined'};
     }
-    if(!opinion || !typeof(opinion) === 'string'){
+    if(!opinion || typeof opinion !== 'string'){
         console.error('opinion is undefined or opinion is not a string')
-        throw {status: 'opinion is undefined or opinion is not a string'};
+        throw {status: 400, error: 'opinion is undefined or opinion is not a string'};
     }
 
     const {data: parentOpinion, error: errorParentOpinion} = await supabase
