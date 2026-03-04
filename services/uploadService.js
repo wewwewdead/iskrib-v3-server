@@ -39,8 +39,8 @@ export const uploadUserDataService = async(bio, name, image, userId, userEmail, 
         if(trimmed.length < 3 || trimmed.length > 50){
             throw {status: 400, error: 'username must be 3-50 characters'};
         }
-        if(!/^[a-z0-9-]+$/.test(trimmed)){
-            throw {status: 400, error: 'username can only contain lowercase letters, numbers, and hyphens'};
+        if(!/^[a-z0-9](?:[a-z0-9]*(?:-[a-z0-9]+)*)?$/.test(trimmed)){
+            throw {status: 400, error: 'username must start/end with a letter or number and cannot have consecutive hyphens'};
         }
         // Check uniqueness
         const {data: existing} = await supabase
@@ -277,6 +277,8 @@ export const uploadJournalContentService = async(
         preview_text,
         thumbnail_url,
         reading_time,
+        status: 'published',
+        published_at: new Date().toISOString(),
     };
 
     const embeddingResult = await GenerateEmbeddings(trimmedTitle, embeddingBody);
@@ -579,6 +581,224 @@ export const updateInterestsService = async(userId, writingInterests, writingGoa
     }
 
     return true;
+}
+
+export const saveDraftService = async(content, title, userId, draftId = null, promptId = null) => {
+    if(!userId){
+        throw {status: 400, error: 'userId is undefined'};
+    }
+
+    if(!content || typeof content !== 'string' || !content.trim()){
+        throw {status: 400, error: 'content is required'};
+    }
+
+    // Validate content is parseable JSON
+    try {
+        JSON.parse(content);
+    } catch {
+        throw {status: 400, error: 'content must be valid JSON'};
+    }
+
+    const trimmedTitle = typeof title === 'string' ? title.trim() : '';
+
+    if(draftId){
+        // Update existing draft — verify ownership
+        const {data: existing, error: fetchError} = await supabase
+            .from('journals')
+            .select('id, user_id, status')
+            .eq('id', draftId)
+            .eq('user_id', userId)
+            .eq('status', 'draft')
+            .maybeSingle();
+
+        if(fetchError){
+            console.error('failed to fetch draft for update:', fetchError.message);
+            throw {status: 500, error: 'failed to fetch draft'};
+        }
+
+        if(!existing){
+            throw {status: 404, error: 'draft not found'};
+        }
+
+        const {error: updateError} = await supabase
+            .from('journals')
+            .update({
+                title: trimmedTitle,
+                content: content,
+            })
+            .eq('id', draftId)
+            .eq('user_id', userId);
+
+        if(updateError){
+            console.error('supabase error updating draft:', updateError.message);
+            throw {status: 500, error: 'failed to update draft'};
+        }
+
+        return {id: draftId};
+    }
+
+    // Create new draft
+    const payload = {
+        user_id: userId,
+        title: trimmedTitle,
+        content: content,
+        post_type: POST_TYPE_TEXT,
+        status: 'draft',
+    };
+
+    if(promptId){
+        const parsedPromptId = parseInt(promptId, 10);
+        if(!isNaN(parsedPromptId)){
+            payload.prompt_id = parsedPromptId;
+        }
+    }
+
+    const {data: insertData, error: insertError} = await supabase
+        .from('journals')
+        .insert(payload)
+        .select('id')
+        .single();
+
+    if(insertError){
+        console.error('supabase error creating draft:', insertError.message);
+        throw {status: 500, error: 'failed to create draft'};
+    }
+
+    return {id: insertData.id};
+}
+
+export const publishDraftService = async(journalId, userId) => {
+    if(!journalId){
+        throw {status: 400, error: 'journalId is required'};
+    }
+    if(!userId){
+        throw {status: 400, error: 'userId is required'};
+    }
+
+    const {data: draft, error: fetchError} = await supabase
+        .from('journals')
+        .select('id, user_id, status, title, content, prompt_id')
+        .eq('id', journalId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if(fetchError){
+        console.error('failed to fetch draft for publish:', fetchError.message);
+        throw {status: 500, error: 'failed to fetch draft'};
+    }
+
+    if(!draft){
+        throw {status: 404, error: 'draft not found'};
+    }
+
+    if(draft.status !== 'draft'){
+        throw {status: 400, error: 'journal is not a draft'};
+    }
+
+    const trimmedTitle = typeof draft.title === 'string' ? draft.title.trim() : '';
+    if(!trimmedTitle){
+        throw {status: 400, error: 'title is required to publish'};
+    }
+
+    if(!draft.content){
+        throw {status: 400, error: 'content is required to publish'};
+    }
+
+    const parseData = parseTextContentSafely(draft.content);
+    if(!parseData){
+        throw {status: 400, error: 'failed to parse content for publish'};
+    }
+
+    const embeddingBody = parseData.wholeText || '';
+    const preview_text = parseData.slicedText || '';
+    const thumbnail_url = parseData.firstImage?.src || null;
+    const reading_time = Math.ceil((embeddingBody.trim().split(/\s+/).length) / 150) || 1;
+
+    const embeddings = await GenerateEmbeddings(trimmedTitle, embeddingBody);
+
+    if(!embeddings || !Array.isArray(embeddings) || embeddings.length === 0){
+        console.error('failed to generate embeddings for draft publish');
+        throw {status: 400, error: 'failed to generate embeddings'};
+    }
+
+    const {error: updateError} = await supabase
+        .from('journals')
+        .update({
+            status: 'published',
+            published_at: new Date().toISOString(),
+            embeddings,
+            preview_text,
+            thumbnail_url,
+            reading_time,
+            title: trimmedTitle,
+        })
+        .eq('id', journalId)
+        .eq('user_id', userId);
+
+    if(updateError){
+        console.error('supabase error publishing draft:', updateError.message);
+        throw {status: 500, error: 'failed to publish draft'};
+    }
+
+    // Non-fatal: send mention notifications
+    try {
+        const mentionedUserIds = extractMentionUserIds(draft.content);
+        const filtered = mentionedUserIds
+            .filter(id => id !== userId)
+            .slice(0, 50);
+
+        if(filtered.length > 0){
+            const notifRows = filtered.map(receiverId => ({
+                sender_id: userId,
+                receiver_id: receiverId,
+                type: 'mention',
+                journal_id: journalId,
+                read: false
+            }));
+
+            const {error: notifError} = await supabase
+                .from('notifications')
+                .insert(notifRows);
+
+            if(notifError){
+                console.error('[mentions] publish draft: insert failed:', notifError.message);
+            }
+        }
+    } catch (mentionErr) {
+        console.error('[mentions] publish draft error:', mentionErr?.message || mentionErr);
+    }
+
+    // Non-fatal: record publish for writing streak
+    let streakResult = null;
+    try {
+        const { recordPublishForStreak } = await import('./streakService.js');
+        streakResult = await recordPublishForStreak(userId);
+    } catch (streakErr) {
+        console.error('non-fatal: streak record failed:', streakErr?.message || streakErr);
+    }
+
+    return { success: true, streakResult };
+}
+
+export const getDraftsService = async(userId) => {
+    if(!userId){
+        throw {status: 400, error: 'userId is required'};
+    }
+
+    const {data, error} = await supabase
+        .from('journals')
+        .select('id, title, created_at, updated_at')
+        .eq('user_id', userId)
+        .eq('status', 'draft')
+        .order('updated_at', {ascending: false})
+        .limit(50);
+
+    if(error){
+        console.error('supabase error fetching drafts:', error.message);
+        throw {status: 500, error: 'failed to fetch drafts'};
+    }
+
+    return {data: data || []};
 }
 
 export const addReplyOpinionService = async(reply, parentId, userId) => {

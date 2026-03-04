@@ -9,3 +9,8 @@ ALTER TABLE notifications ADD CONSTRAINT notifications_type_check
     'constellation_request', 'constellation_accepted',
     'mention'
   ));
+
+-- Add 'mention' to the notification_opinions type CHECK constraint
+ALTER TABLE notification_opinions DROP CONSTRAINT IF EXISTS notification_opinions_type_check;
+ALTER TABLE notification_opinions ADD CONSTRAINT notification_opinions_type_check
+  CHECK (type IN ('reply', 'mention'));

@@ -518,7 +518,12 @@ const sendShareImageDebug = (res, payload) => {
     return res.status(200).json(payload);
 };
 
-const CORS_ORIGINS = (process.env.CORS_ORIGINS || 'https://iskrib.com,https://iskrib-v3-client-side.onrender.com,http://localhost:5173')
+const CORS_ORIGINS = (
+    process.env.CORS_ORIGINS ||
+    (process.env.NODE_ENV === 'production'
+        ? 'https://iskrib.com,https://iskrib-v3-client-side.onrender.com'
+        : 'https://iskrib.com,https://iskrib-v3-client-side.onrender.com,http://localhost:5173')
+)
     .split(',')
     .map(s => s.trim())
     .filter(Boolean);

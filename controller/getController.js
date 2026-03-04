@@ -1,4 +1,5 @@
 import { getBookmarksService, getCommentsService, getFollowingFeedService, getForYouFeedService, getJournalByIdService, getJournalContentService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchFollowingUsersService, searchJournalsService, searchUsersService } from "../services/getService.js";
+import { getDraftsService } from "../services/uploadService.js";
 
 
 export const getJournalsController = async(req, res) =>{
@@ -215,6 +216,18 @@ export const getVisitedProfileMediaController = async(req, res) => {
     } catch (error) {
         console.error(error);
         return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch visited profile media'});
+    }
+}
+
+export const getDraftsController = async(req, res) => {
+    const userId = req.userId;
+
+    try {
+        const response = await getDraftsService(userId);
+        return res.status(200).json(response);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({error: error?.error || 'failed to fetch drafts'});
     }
 }
 

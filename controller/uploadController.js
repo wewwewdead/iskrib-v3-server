@@ -1,4 +1,4 @@
-import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, updateRepostCaptionService, completeOnboardingService, updateInterestsService } from "../services/uploadService.js";
+import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, updateRepostCaptionService, completeOnboardingService, updateInterestsService, saveDraftService, publishDraftService } from "../services/uploadService.js";
 
 export const uploadUserDataController = async(req, res) =>{
     const {bio, name, username} = req.body;
@@ -45,7 +45,8 @@ export const updateUserDataController = async(req, res) =>{
         return res.status(200).json({data: data});
     } catch (error) {
         console.error('error updating user data', error);
-        return res.status(500).json({error: 'error updating user data'});
+        const status = error?.status || 500;
+        return res.status(status).json({error: error?.error || 'error updating user data'});
     }
 }
 
@@ -153,6 +154,40 @@ export const updateInterestsController = async(req, res) => {
         console.error('failed to update interests:', error);
         const status = error?.status || 500;
         return res.status(status).json({error: error?.error || 'failed to update interests'});
+    }
+}
+
+export const saveDraftController = async(req, res) => {
+    const {content, title, draftId, prompt_id: promptId} = req.body;
+    const userId = req.userId;
+
+    try {
+        const result = await saveDraftService(content, title, userId, draftId, promptId);
+        return res.status(200).json(result);
+    } catch (error) {
+        console.error('failed to save draft:', error);
+        const status = error?.status || 500;
+        return res.status(status).json({error: error?.error || 'failed to save draft'});
+    }
+}
+
+export const publishDraftController = async(req, res) => {
+    const {journalId} = req.body;
+    const userId = req.userId;
+
+    try {
+        const result = await publishDraftService(journalId, userId);
+        const responsePayload = {message: 'Draft published successfully!'};
+        if(result?.streakResult?.streakData){
+            responsePayload.streak = {
+                current_streak: result.streakResult.streakData.current_streak,
+            };
+        }
+        return res.status(200).json(responsePayload);
+    } catch (error) {
+        console.error('failed to publish draft:', error);
+        const status = error?.status || 500;
+        return res.status(status).json({error: error?.error || 'failed to publish draft'});
     }
 }
 

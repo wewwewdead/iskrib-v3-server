@@ -36,7 +36,7 @@ export const addBookmarkController = async(req, res) =>{
         return res.status(200).json(response);
     } catch (error) {
         console.error(error);
-        return res.status(500).json('Failed to add bookmarks')
+        return res.status(500).json({error: 'Failed to add bookmarks'})
     }
 }
 

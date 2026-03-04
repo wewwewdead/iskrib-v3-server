@@ -1,14 +1,13 @@
 import supabase from "./supabase.js";
+import { AppError } from "../utils/AppError.js";
 
 export const likeService = async(journalId, receiverId, senderId) =>{
     if(!journalId || !receiverId){
-        console.error('journalId or receiverId is undefined');
-        throw {status: 400, error: 'journalId or receiverId is undefined'};
+        throw new AppError(400, 'journalId or receiverId is undefined');
     }
 
     if(!senderId){
-        console.error('senderId is undefined');
-        throw {status: 400, error: 'senderId is undefined'}
+        throw new AppError(400, 'senderId is undefined');
     }
 
     const isOwnContent = senderId === receiverId;
@@ -38,7 +37,7 @@ export const likeService = async(journalId, receiverId, senderId) =>{
         const insertLikePromise = supabase
         .from('likes')
         .insert({
-            user_id: senderId, 
+            user_id: senderId,
             journal_id: journalId,
         })
 
@@ -47,13 +46,12 @@ export const likeService = async(journalId, receiverId, senderId) =>{
             insertLikePromise
         ])
 
-        const {data: insertNotifcationResult, error: errorInsertNotificationResult} = insertNotif;
-
-        const {data: insertLikeResult, error: errorInserLikeResult} = insertLike;
+        const {error: errorInsertNotificationResult} = insertNotif;
+        const {error: errorInserLikeResult} = insertLike;
 
         if(errorInsertNotificationResult || errorInserLikeResult){
-            console.error('supabase error:', errorInserLikeResult.message || errorInsertNotificationResult.message);
-            throw {status: 500, error: 'supabase error while inserting likes'}
+            console.error('supabase error:', errorInserLikeResult?.message || errorInsertNotificationResult?.message);
+            throw new AppError(500, 'supabase error while inserting likes');
         }
 
         return {message: 'liked'};
@@ -77,8 +75,8 @@ export const likeService = async(journalId, receiverId, senderId) =>{
         const {error: errorDeleteLike} = deleteLike;
 
         if(errorDeleteNotif || errorDeleteLike){
-            console.error('supabase error while deleting like', errorDeleteLike.message || errorDeleteNotif.message);
-            throw {status: 500, error: 'supabase error while deleting like'}
+            console.error('supabase error while deleting like', errorDeleteLike?.message || errorDeleteNotif?.message);
+            throw new AppError(500, 'supabase error while deleting like');
         }
 
         return {message: 'unliked'};
@@ -88,13 +86,11 @@ export const likeService = async(journalId, receiverId, senderId) =>{
 
 export const addCommentService = async(userId, comments, postId, receiverId, parentId) => {
     if(!comments || !postId || !receiverId){
-        console.error('comments || postId || receiverId is undefined');
-        throw {status: 400, error: 'comments || postId || receiverId is undefined'};
+        throw new AppError(400, 'comments || postId || receiverId is undefined');
     }
 
     if(!userId){
-        console.error('userId is undefined')
-        throw {status: 400, error: 'userId is undefined'};
+        throw new AppError(400, 'userId is undefined');
     }
     const isOwnContent = userId === receiverId;
 
@@ -126,13 +122,43 @@ export const addCommentService = async(userId, comments, postId, receiverId, par
         insertCommentPromise
     ])
 
-    const {data: addComment, error: errorAddComment} = insertComment;
-
-    const {data: insertNotifResul, error: errorAddNotif} = insertNotif;
+    const {error: errorAddComment} = insertComment;
+    const {error: errorAddNotif} = insertNotif;
 
     if(errorAddComment || errorAddNotif){
-        console.error('supabase error while inserting comments or notifs', errorAddComment.message || errorAddComment.message);
-        throw {status: 500, error: 'supabase error while inserting comments or notifs'};
+        console.error('supabase error while inserting comments or notifs', errorAddComment?.message || errorAddNotif?.message);
+        throw new AppError(500, 'supabase error while inserting comments or notifs');
+    }
+
+    // Non-fatal: send @mention notifications
+    try {
+        const mentionMatches = comments.match(/@([\w-]+)/g);
+        if (mentionMatches && mentionMatches.length > 0) {
+            const usernames = [...new Set(mentionMatches.map(m => m.slice(1)))].slice(0, 10);
+
+            const { data: mentionedUsers } = await supabase
+                .from('users')
+                .select('id, username')
+                .in('username', usernames);
+
+            if (mentionedUsers && mentionedUsers.length > 0) {
+                const notifs = mentionedUsers
+                    .filter(u => u.id !== userId && u.id !== receiverId)
+                    .map(u => ({
+                        sender_id: userId,
+                        receiver_id: u.id,
+                        journal_id: postId,
+                        type: 'mention',
+                        read: false,
+                    }));
+
+                if (notifs.length > 0) {
+                    await supabase.from('notifications').insert(notifs);
+                }
+            }
+        }
+    } catch (mentionErr) {
+        console.error('non-fatal: mention notification error', mentionErr?.message);
     }
 
     return {message: 'success'};
@@ -140,12 +166,10 @@ export const addCommentService = async(userId, comments, postId, receiverId, par
 
 export const addBookmarkService = async(userId, journalId) =>{
     if(!userId){
-        console.error('userId is undefined');
-        throw {status: 400, error: 'userId is undefined'}
+        throw new AppError(400, 'userId is undefined');
     }
     if(!journalId){
-        console.error('journalId is undefined');
-        throw {status: 400, error: 'journalId is undefined'};
+        throw new AppError(400, 'journalId is undefined');
     }
 
     const {data:checkExisting, error: errorCheckExisting} = await supabase
@@ -157,30 +181,30 @@ export const addBookmarkService = async(userId, journalId) =>{
 
     if(errorCheckExisting){
         console.error('supabase error while checking the existing bookmarks', errorCheckExisting.message);
-        throw {status: 500, error: 'supabase error while checking the existing bookmarks'};
+        throw new AppError(500, 'supabase error while checking the existing bookmarks');
     }
 
     if(!checkExisting){
-        const {data: addBoorkmark, error: errorAddBookmark} = await supabase
+        const {error: errorAddBookmark} = await supabase
         .from('bookmarks')
         .insert({user_id: userId, journal_id: journalId})
 
         if(errorAddBookmark){
             console.error('supabase error while adding bookmark', errorAddBookmark.message);
-            throw {status: 500, error: 'supabase error while adding bookmark'};
+            throw new AppError(500, 'supabase error while adding bookmark');
         }
 
         return {message: 'success'};
     } else {
-        const {data: deleteBookmark, error: errorDeletingBookmark} = await supabase
+        const {error: errorDeletingBookmark} = await supabase
         .from('bookmarks')
         .delete()
         .eq('user_id', userId)
         .eq('journal_id', journalId)
 
         if(errorDeletingBookmark){
-            console.error('supabase error while deleting booknmark', errorDeletingBookmark.message);
-            throw {status: 500, error: 'supabase error while deleting booknmark'};
+            console.error('supabase error while deleting bookmark', errorDeletingBookmark.message);
+            throw new AppError(500, 'supabase error while deleting bookmark');
         }
         return {message: 'deleted'}
     }
@@ -188,12 +212,10 @@ export const addBookmarkService = async(userId, journalId) =>{
 
 export const uploadOpinionReplyService = async(parent_id, opinion, user_id) =>{
     if(!parent_id || !user_id){
-        console.error('parentid or userid is undefined');
-        throw {status: 400, error:'parentid or userid is undefined'};
+        throw new AppError(400, 'parentid or userid is undefined');
     }
     if(!opinion || typeof opinion !== 'string'){
-        console.error('opinion is undefined or opinion is not a string')
-        throw {status: 400, error: 'opinion is undefined or opinion is not a string'};
+        throw new AppError(400, 'opinion is undefined or opinion is not a string');
     }
 
     const {data: parentOpinion, error: errorParentOpinion} = await supabase
@@ -204,11 +226,10 @@ export const uploadOpinionReplyService = async(parent_id, opinion, user_id) =>{
 
     if(errorParentOpinion){
         console.error('supabase error while fetching parent opinion', errorParentOpinion.message);
-        throw {status: 500, error: 'supabase error while fetching parent opinion'};
+        throw new AppError(500, 'supabase error while fetching parent opinion');
     }
     if(!parentOpinion?.user_id){
-        console.error('parent opinion not found');
-        throw {status: 404, error: 'parent opinion not found'};
+        throw new AppError(404, 'parent opinion not found');
     }
 
     const receiver_id = parentOpinion.user_id;
@@ -225,12 +246,40 @@ export const uploadOpinionReplyService = async(parent_id, opinion, user_id) =>{
     const [ insertNotif, insertOpinionReply] = await Promise.all([
         isOwner ? Promise.resolve({error: null}) : insertNotifPromise, insertOpinionReplyPromise
     ])
-    const {data: uploadOpinionReply, error: errorUploadOpinionReply} = insertOpinionReply;
-    const {data: insertNotifResult, error: errorInsertNotif} = insertNotif;
+    const {error: errorUploadOpinionReply} = insertOpinionReply;
+    const {error: errorInsertNotif} = insertNotif;
 
     if(errorUploadOpinionReply || errorInsertNotif) {
-        console.error('supabase error:', errorInsertNotif.message ||errorUploadOpinionReply.message);
-        return {status: 500, error: 'supabaser error'}
+        console.error('supabase error:', errorInsertNotif?.message || errorUploadOpinionReply?.message);
+        throw new AppError(500, 'supabase error');
+    }
+
+    // Non-fatal: send @mention notifications
+    try {
+        const mentionMatches = opinion.match(/@([\w-]+)/g);
+        if (mentionMatches && mentionMatches.length > 0) {
+            const usernames = [...new Set(mentionMatches.map(m => m.slice(1)))].slice(0, 10);
+            const { data: mentionedUsers } = await supabase
+                .from('users')
+                .select('id, username')
+                .in('username', usernames);
+            if (mentionedUsers && mentionedUsers.length > 0) {
+                const notifs = mentionedUsers
+                    .filter(u => u.id !== user_id && u.id !== receiver_id)
+                    .map(u => ({
+                        sender_id: user_id,
+                        receiver_id: u.id,
+                        opinion_id: parent_id,
+                        type: 'mention',
+                        read: false,
+                    }));
+                if (notifs.length > 0) {
+                    await supabase.from('notification_opinions').insert(notifs);
+                }
+            }
+        }
+    } catch (mentionErr) {
+        console.error('non-fatal: opinion reply mention notification error', mentionErr?.message);
     }
 
     return {message: 'success'};
@@ -238,11 +287,11 @@ export const uploadOpinionReplyService = async(parent_id, opinion, user_id) =>{
 
 export const repostService = async(sourceJournalId, caption, userId) => {
     if(!sourceJournalId || !userId){
-        throw {status: 400, error: 'sourceJournalId or userId is undefined'};
+        throw new AppError(400, 'sourceJournalId or userId is undefined');
     }
 
     if(caption && caption.length > 280){
-        throw {status: 400, error: 'caption must be 280 characters or less'};
+        throw new AppError(400, 'caption must be 280 characters or less');
     }
 
     // Fetch source journal
@@ -254,19 +303,19 @@ export const repostService = async(sourceJournalId, caption, userId) => {
 
     if(errorSourceJournal){
         console.error('supabase error while fetching source journal:', errorSourceJournal.message);
-        throw {status: 500, error: 'supabase error while fetching source journal'};
+        throw new AppError(500, 'supabase error while fetching source journal');
     }
 
     if(!sourceJournal){
-        throw {status: 404, error: 'source journal not found'};
+        throw new AppError(404, 'source journal not found');
     }
 
     if(sourceJournal.privacy !== 'public'){
-        throw {status: 403, error: 'cannot repost a private post'};
+        throw new AppError(403, 'cannot repost a private post');
     }
 
     if(sourceJournal.user_id === userId){
-        throw {status: 403, error: 'cannot repost your own post'};
+        throw new AppError(403, 'cannot repost your own post');
     }
 
     // If reposting a repost, follow chain to the ultimate original
@@ -283,16 +332,16 @@ export const repostService = async(sourceJournalId, caption, userId) => {
 
         if(errorOriginal){
             console.error('supabase error fetching original:', errorOriginal.message);
-            throw {status: 500, error: 'supabase error while fetching original post'};
+            throw new AppError(500, 'supabase error while fetching original post');
         }
         if(!originalJournal){
-            throw {status: 404, error: 'original post no longer exists'};
+            throw new AppError(404, 'original post no longer exists');
         }
         if(originalJournal.privacy !== 'public'){
-            throw {status: 403, error: 'cannot repost a private post'};
+            throw new AppError(403, 'cannot repost a private post');
         }
         if(originalJournal.user_id === userId){
-            throw {status: 403, error: 'cannot repost your own post'};
+            throw new AppError(403, 'cannot repost your own post');
         }
 
         ultimateSourceId = originalJournal.id;
@@ -311,11 +360,11 @@ export const repostService = async(sourceJournalId, caption, userId) => {
 
     if(errorExisting){
         console.error('supabase error while checking existing repost:', errorExisting.message);
-        throw {status: 500, error: 'supabase error while checking existing repost'};
+        throw new AppError(500, 'supabase error while checking existing repost');
     }
 
     if(existingRepost){
-        throw {status: 409, error: 'you have already reposted this post'};
+        throw new AppError(409, 'you have already reposted this post');
     }
 
     const repostTitle = `Repost: ${ultimateSourceTitle || 'Untitled'}`;
@@ -337,7 +386,7 @@ export const repostService = async(sourceJournalId, caption, userId) => {
 
     if(errorInsertRepost){
         console.error('supabase error while inserting repost:', errorInsertRepost.message);
-        throw {status: 500, error: 'supabase error while inserting repost'};
+        throw new AppError(500, 'supabase error while inserting repost');
     }
 
     // Notify the original author (skip if self)
@@ -364,8 +413,7 @@ export const repostService = async(sourceJournalId, caption, userId) => {
 
 export const addFollowsService = async(followerId, followingId) => {
     if(!followerId || !followingId){
-        console.error('followerId or followingId is undefined');
-        throw {status: 400, error: 'followerId or followingId is undefined'};
+        throw new AppError(400, 'followerId or followingId is undefined');
     }
 
     const {data: existing, error: errorExisting} = await supabase
@@ -377,11 +425,11 @@ export const addFollowsService = async(followerId, followingId) => {
 
     if(errorExisting){
         console.error('supabase error while checking existing following:', errorExisting.message);
-        throw {status: 500, error: 'supabase error while checking existing following'}
+        throw new AppError(500, 'supabase error while checking existing following');
     }
 
     if(existing){
-        const {data: removeData, error: errorRemoveData} = await supabase
+        const {error: errorRemoveData} = await supabase
         .from('follows')
         .delete()
         .eq('follower_id', followerId)
@@ -389,23 +437,21 @@ export const addFollowsService = async(followerId, followingId) => {
 
         if(errorRemoveData){
             console.error('supabase error while deleting follow data:', errorRemoveData.message);
-            throw {status: 500, error: 'supabase error while deleting follow data'};
+            throw new AppError(500, 'supabase error while deleting follow data');
         }
 
         return {message: 'deleted follows data'};
     } else {
-        const data = {
+        const {error: errorInserData} = await supabase
+        .from('follows')
+        .insert({
             follower_id: followerId,
             following_id: followingId,
-        }
-
-        const {data: inserData,  error: errorInserData} = await supabase
-        .from('follows')
-        .insert(data)
+        })
 
         if(errorInserData){
             console.error('supabase error while inserting follow data:', errorInserData.message);
-            throw {status: 500, error: 'supabase error while inserting follow data:'}
+            throw new AppError(500, 'supabase error while inserting follow data');
         }
 
         // Create follow notification (skip if self-follow)

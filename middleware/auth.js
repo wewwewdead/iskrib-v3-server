@@ -9,7 +9,7 @@ export const extractBearerToken = (authHeader = "") => {
         return bearerMatch[1].trim();
     }
 
-    return trimmed;
+    return "";
 };
 
 export const resolveAuthUser = async (token) => {
