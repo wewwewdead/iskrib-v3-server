@@ -75,6 +75,7 @@ async function ensureShareFonts() {
 }
 
 const app = express();
+app.set('trust proxy', 1);
 app.set('etag', 'weak');
 const PORT = process.env.PORT || 3000;
 const SITE_URL = SITE_URL_SHARED;
@@ -553,26 +554,32 @@ app.use((req, res, next) => {
     const startNs = process.hrtime.bigint();
     let byteCount = 0;
 
-    const originalWrite = res.write.bind(res);
-    const originalEnd = res.end.bind(res);
+    // Skip byte-counting overhead for cheap internal routes
+    const skipByteCount = req.path === '/health' || req.path === '/api/health'
+        || req.path === '/metrics' || req.path === '/api/metrics';
 
-    res.write = (chunk, encoding, callback) => {
-        if (chunk) {
-            byteCount += Buffer.isBuffer(chunk)
-                ? chunk.length
-                : Buffer.byteLength(chunk, typeof encoding === 'string' ? encoding : 'utf8');
-        }
-        return originalWrite(chunk, encoding, callback);
-    };
+    if (!skipByteCount) {
+        const originalWrite = res.write.bind(res);
+        const originalEnd = res.end.bind(res);
 
-    res.end = (chunk, encoding, callback) => {
-        if (chunk) {
-            byteCount += Buffer.isBuffer(chunk)
-                ? chunk.length
-                : Buffer.byteLength(chunk, typeof encoding === 'string' ? encoding : 'utf8');
-        }
-        return originalEnd(chunk, encoding, callback);
-    };
+        res.write = (chunk, encoding, callback) => {
+            if (chunk) {
+                byteCount += Buffer.isBuffer(chunk)
+                    ? chunk.length
+                    : Buffer.byteLength(chunk, typeof encoding === 'string' ? encoding : 'utf8');
+            }
+            return originalWrite(chunk, encoding, callback);
+        };
+
+        res.end = (chunk, encoding, callback) => {
+            if (chunk) {
+                byteCount += Buffer.isBuffer(chunk)
+                    ? chunk.length
+                    : Buffer.byteLength(chunk, typeof encoding === 'string' ? encoding : 'utf8');
+            }
+            return originalEnd(chunk, encoding, callback);
+        };
+    }
 
     res.on('finish', () => {
         metricsState.inFlight = Math.max(0, metricsState.inFlight - 1);
@@ -706,38 +713,39 @@ app.get('/share/u/:username/image', async (req, res) => {
                 .toBuffer();
         }
 
-        // ── Dark overlay for text readability ──
-        const overlaySvg = `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
-            <rect width="100%" height="100%" fill="black" fill-opacity="0.55"/>
-        </svg>`;
-        const overlayBuffer = await sharp(Buffer.from(overlaySvg)).png().toBuffer();
-
-        // ── Circular avatar ──
-        let avatarComposite = null;
+        // ── Dark overlay + circular avatar (parallel) ──
         const avatarSize = 180;
         const avatarUrl = user.image_url;
-        if (avatarUrl) {
+
+        const overlayPromise = sharp(Buffer.from(
+            `<svg width="${DEFAULT_OG_IMAGE_WIDTH}" height="${DEFAULT_OG_IMAGE_HEIGHT}">
+                <rect width="100%" height="100%" fill="black" fill-opacity="0.55"/>
+            </svg>`
+        )).png().toBuffer();
+
+        const avatarPromise = (async () => {
+            if (!avatarUrl) return null;
             const avatarEval = evaluateShareImageCandidate(avatarUrl);
-            if (avatarEval.ok && avatarEval.resolvedUrl) {
-                try {
-                    const remote = await fetchRemoteImageBuffer(avatarEval.resolvedUrl);
-                    const circleMask = Buffer.from(
-                        `<svg width="${avatarSize}" height="${avatarSize}">
-                            <circle cx="${avatarSize / 2}" cy="${avatarSize / 2}" r="${avatarSize / 2}" fill="white"/>
-                        </svg>`
-                    );
-                    const resizedAvatar = await sharp(remote.buffer, { limitInputPixels: 60_000_000 })
-                        .resize(avatarSize, avatarSize, { fit: 'cover' })
-                        .png()
-                        .toBuffer();
-                    const circularAvatar = await sharp(resizedAvatar)
-                        .composite([{ input: circleMask, blend: 'dest-in' }])
-                        .png()
-                        .toBuffer();
-                    avatarComposite = circularAvatar;
-                } catch { /* skip avatar */ }
-            }
-        }
+            if (!avatarEval.ok || !avatarEval.resolvedUrl) return null;
+            try {
+                const remote = await fetchRemoteImageBuffer(avatarEval.resolvedUrl);
+                const circleMask = Buffer.from(
+                    `<svg width="${avatarSize}" height="${avatarSize}">
+                        <circle cx="${avatarSize / 2}" cy="${avatarSize / 2}" r="${avatarSize / 2}" fill="white"/>
+                    </svg>`
+                );
+                const resizedAvatar = await sharp(remote.buffer, { limitInputPixels: 60_000_000 })
+                    .resize(avatarSize, avatarSize, { fit: 'cover' })
+                    .png()
+                    .toBuffer();
+                return await sharp(resizedAvatar)
+                    .composite([{ input: circleMask, blend: 'dest-in' }])
+                    .png()
+                    .toBuffer();
+            } catch { return null; }
+        })();
+
+        const [overlayBuffer, avatarComposite] = await Promise.all([overlayPromise, avatarPromise]);
 
         // ── Compose all layers ──
         const composites = [
