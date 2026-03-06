@@ -174,7 +174,7 @@ SET search_path = public, extensions
 AS $$
 DECLARE
     user_embedding vector(384);
-    max_hot INT;
+    max_hot BIGINT;
 BEGIN
     SELECT u.interests_embedding
     INTO user_embedding
@@ -186,10 +186,10 @@ BEGIN
     END IF;
 
     SELECT COALESCE(MAX(
-        COALESCE(j2.views, 0) * 6
-        + j2.cached_reaction_count * 3
-        + j2.cached_comment_count * 2
-        + j2.cached_bookmark_count * 2
+        COALESCE(j2.views, 0)::bigint * 6
+        + j2.cached_reaction_count::bigint * 3
+        + j2.cached_comment_count::bigint * 2
+        + j2.cached_bookmark_count::bigint * 2
     ), 1)
     INTO max_hot
     FROM public.journals j2
@@ -281,13 +281,13 @@ SECURITY DEFINER
 SET search_path = public, extensions
 AS $$
 DECLARE
-    max_hot INT;
+    max_hot BIGINT;
 BEGIN
     SELECT COALESCE(MAX(
-        COALESCE(j2.views, 0) * 6
-        + j2.cached_reaction_count * 3
-        + j2.cached_comment_count * 2
-        + j2.cached_bookmark_count * 2
+        COALESCE(j2.views, 0)::bigint * 6
+        + j2.cached_reaction_count::bigint * 3
+        + j2.cached_comment_count::bigint * 2
+        + j2.cached_bookmark_count::bigint * 2
     ), 1)
     INTO max_hot
     FROM public.journals j2
@@ -320,7 +320,7 @@ BEGIN
                 + j.cached_reaction_count * 3
                 + j.cached_comment_count * 2
                 + j.cached_bookmark_count * 2
-            )::INT AS h_score
+            )::BIGINT AS h_score
         FROM public.journals j
         LEFT JOIN public.users u ON u.id = j.user_id
         WHERE j.privacy = 'public'
