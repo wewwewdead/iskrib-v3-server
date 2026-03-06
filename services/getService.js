@@ -760,32 +760,59 @@ export const getMonthlyHottestJournalsService = async(limit, userId) => {
         throw {status: 500, error: 'supabase error while fetching monthly hottest journals'};
     }
 
+    const hottestRows = rpcData || [];
+    const missingReadingTimeIds = [...new Set(
+        hottestRows
+            .filter((row) => row?.id && !Number.isFinite(Number(row?.reading_time)))
+            .map((row) => row.id)
+    )];
+
+    let readingTimeByJournalId = new Map();
+    if(missingReadingTimeIds.length > 0){
+        const {data: readingTimeRows, error: readingTimeError} = await supabase
+            .from('journals')
+            .select('id, reading_time')
+            .in('id', missingReadingTimeIds);
+
+        if(readingTimeError){
+            console.error('supabase error fetching missing reading_time values:', readingTimeError.message);
+        } else {
+            readingTimeByJournalId = new Map(
+                (readingTimeRows || []).map((row) => [row.id, row.reading_time])
+            );
+        }
+    }
+
     // Reshape RPC rows to match the format the client expects
-    const journals = (rpcData || []).map((row) => ({
-        id: row.id,
-        user_id: row.user_id,
-        title: row.title,
-        preview_text: row.preview_text || '',
-        thumbnail_url: row.thumbnail_url || null,
-        post_type: row.post_type,
-        created_at: row.created_at,
-        privacy: row.privacy,
-        views: row.views,
-        is_repost: row.is_repost,
-        repost_source_journal_id: row.repost_source_journal_id,
-        repost_caption: row.repost_caption,
-        reading_time: row.reading_time || 1,
-        users: {
-            id: row.user_id,
-            name: row.user_name,
-            image_url: row.user_image_url,
-            badge: row.user_badge
-        },
-        like_count: [{count: row.like_count}],
-        comment_count: [{count: row.comment_count}],
-        bookmark_count: [{count: row.bookmark_count}],
-        hot_score: row.hot_score
-    }));
+    const journals = hottestRows.map((row) => {
+        const normalizedReadingTime = Number(row?.reading_time ?? readingTimeByJournalId.get(row.id));
+
+        return {
+            id: row.id,
+            user_id: row.user_id,
+            title: row.title,
+            preview_text: row.preview_text || '',
+            thumbnail_url: row.thumbnail_url || null,
+            post_type: row.post_type,
+            created_at: row.created_at,
+            privacy: row.privacy,
+            views: row.views,
+            is_repost: row.is_repost,
+            repost_source_journal_id: row.repost_source_journal_id,
+            repost_caption: row.repost_caption,
+            reading_time: Number.isFinite(normalizedReadingTime) && normalizedReadingTime > 0 ? normalizedReadingTime : 1,
+            users: {
+                id: row.user_id,
+                name: row.user_name,
+                image_url: row.user_image_url,
+                badge: row.user_badge
+            },
+            like_count: [{count: row.like_count}],
+            comment_count: [{count: row.comment_count}],
+            bookmark_count: [{count: row.bookmark_count}],
+            hot_score: row.hot_score
+        };
+    });
 
     const journalsWithInteractions = await attachUserInteractionFlags(journals, userId);
     const optimizedJournals = decorateJournalCollection(journalsWithInteractions, JOURNAL_MEDIA_USAGE.feed);

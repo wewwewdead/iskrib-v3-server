@@ -388,7 +388,8 @@ RETURNS TABLE (
     like_count bigint,
     comment_count bigint,
     bookmark_count bigint,
-    hot_score bigint
+    hot_score bigint,
+    reading_time int
 )
 LANGUAGE sql
 STABLE
@@ -417,7 +418,8 @@ AS $$
         (coalesce(j.views, 0)::bigint * 6)
             + (j.cached_reaction_count::bigint * 3)
             + (j.cached_comment_count::bigint * 2)
-            + (j.cached_bookmark_count::bigint * 2) as hot_score
+            + (j.cached_bookmark_count::bigint * 2) as hot_score,
+        coalesce(j.reading_time, 1) as reading_time
     FROM public.journals j
     INNER JOIN public.users u ON u.id = j.user_id
     WHERE j.privacy = 'public'
