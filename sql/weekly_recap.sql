@@ -20,9 +20,9 @@ BEGIN
         'posts_written', COUNT(*)::INT,
         'total_words', COALESCE(SUM(
             GREATEST(length(COALESCE(j.content::TEXT, '')) / 5, 0)
-        ), 0)::INT,
-        'reactions_received', COALESCE(SUM(j.cached_reaction_count), 0)::INT,
-        'views_received', COALESCE(SUM(COALESCE(j.views, 0)), 0)::INT
+        ), 0)::BIGINT,
+        'reactions_received', COALESCE(SUM(j.cached_reaction_count), 0)::BIGINT,
+        'views_received', COALESCE(SUM(COALESCE(j.views, 0)), 0)::BIGINT
     ) INTO v_personal
     FROM journals j
     WHERE j.user_id = p_user_id

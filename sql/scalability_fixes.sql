@@ -117,7 +117,8 @@ returns table (
     like_count bigint,
     comment_count bigint,
     bookmark_count bigint,
-    hot_score bigint
+    hot_score bigint,
+    reading_time int
 )
 language sql
 stable
@@ -146,7 +147,8 @@ as $$
         (coalesce(j.views, 0)::bigint * 6)
             + (j.cached_reaction_count::bigint * 3)
             + (j.cached_comment_count::bigint * 2)
-            + (j.cached_bookmark_count::bigint * 2) as hot_score
+            + (j.cached_bookmark_count::bigint * 2) as hot_score,
+        coalesce(j.reading_time, 1) as reading_time
     from public.journals j
     inner join public.users u on u.id = j.user_id
     where j.privacy = 'public'

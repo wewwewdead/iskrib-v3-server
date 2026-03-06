@@ -15,6 +15,12 @@ const COMMENT_REPLY_SELECT = `
     users(name, image_url, id, badge)
 `;
 
+const checkHottestPost = () => {
+    supabase.rpc('check_hottest_post_tracker').then(({ error }) => {
+        if (error) console.error('hottest tracker check failed:', error.message);
+    });
+};
+
 export const addViewsController = asyncHandler(async (req, res) => {
     const { journalId } = req.body;
     if (!journalId) {
@@ -45,6 +51,7 @@ export const addViewsController = asyncHandler(async (req, res) => {
         return res.status(500).json({ error: 'error incrementing views' });
     }
 
+    checkHottestPost();
     return res.status(200).json({ message: 'success!', counted: true });
 });
 

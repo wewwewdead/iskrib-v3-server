@@ -774,6 +774,7 @@ export const getMonthlyHottestJournalsService = async(limit, userId) => {
         is_repost: row.is_repost,
         repost_source_journal_id: row.repost_source_journal_id,
         repost_caption: row.repost_caption,
+        reading_time: row.reading_time || 1,
         users: {
             id: row.user_id,
             name: row.user_name,

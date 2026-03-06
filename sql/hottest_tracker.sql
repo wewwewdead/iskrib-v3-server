@@ -49,32 +49,24 @@ begin
     v_month_key   := to_char(now() at time zone 'UTC', 'YYYY-MM');
 
     -- Find the #1 public post this month by hot score
+    -- Uses cached columns to match get_monthly_hottest_journals scoring
     select
         j.id,
         j.user_id,
         (coalesce(j.views, 0)::bigint * 6)
-            + (coalesce(lk.cnt, 0)::bigint * 3)
-            + (coalesce(cm.cnt, 0)::bigint * 2)
-            + (coalesce(bk.cnt, 0)::bigint * 2)
+            + (j.cached_reaction_count::bigint * 3)
+            + (j.cached_comment_count::bigint * 2)
+            + (j.cached_bookmark_count::bigint * 2)
     into v_top_journal_id, v_top_user_id, v_top_score
     from public.journals j
-    left join lateral (
-        select count(*) as cnt from public.likes where journal_id = j.id
-    ) lk on true
-    left join lateral (
-        select count(*) as cnt from public.comments where post_id = j.id
-    ) cm on true
-    left join lateral (
-        select count(*) as cnt from public.bookmarks where journal_id = j.id
-    ) bk on true
     where j.privacy = 'public'
       and j.created_at >= v_month_start
       and j.created_at <  v_month_end
     order by
         (coalesce(j.views, 0)::bigint * 6)
-            + (coalesce(lk.cnt, 0)::bigint * 3)
-            + (coalesce(cm.cnt, 0)::bigint * 2)
-            + (coalesce(bk.cnt, 0)::bigint * 2) desc,
+            + (j.cached_reaction_count::bigint * 3)
+            + (j.cached_comment_count::bigint * 2)
+            + (j.cached_bookmark_count::bigint * 2) desc,
         j.created_at desc,
         j.id desc
     limit 1;

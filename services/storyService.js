@@ -51,6 +51,14 @@ const decorateStoryMedia = (story, usage = 'card') => {
     };
 };
 
+const isMissingReadingProgressColumnError = (error) => {
+    const message = error?.message || '';
+    return message.includes("reading_progress") && (
+        message.includes("paragraph_index")
+        || message.includes("paragraph_offset")
+    );
+};
+
 /**
  * Batch-fetch public user profiles for a list of author IDs.
  */
@@ -246,10 +254,29 @@ export const getStoryByIdService = async (storyId, userId) => {
     let readingProgress = null;
 
     if (userId) {
+        const progressPromise = supabase
+            .from('reading_progress')
+            .select('chapter_id, scroll_position, paragraph_index, paragraph_offset, last_read_at')
+            .eq('story_id', storyId)
+            .eq('user_id', userId)
+            .maybeSingle()
+            .then(async (result) => {
+                if (!result.error || !isMissingReadingProgressColumnError(result.error)) {
+                    return result;
+                }
+
+                return supabase
+                    .from('reading_progress')
+                    .select('chapter_id, scroll_position, last_read_at')
+                    .eq('story_id', storyId)
+                    .eq('user_id', userId)
+                    .maybeSingle();
+            });
+
         const [voteRes, libRes, progressRes] = await Promise.all([
             supabase.from('story_votes').select('id').eq('story_id', storyId).eq('user_id', userId).maybeSingle(),
             supabase.from('story_library').select('id').eq('story_id', storyId).eq('user_id', userId).maybeSingle(),
-            supabase.from('reading_progress').select('chapter_id, scroll_position, last_read_at').eq('story_id', storyId).eq('user_id', userId).maybeSingle(),
+            progressPromise,
         ]);
 
         hasVoted = !!voteRes.data;

@@ -1,6 +1,13 @@
 import supabase from "./supabase.js";
 import { AppError } from "../utils/AppError.js";
 
+// Fire-and-forget: re-evaluate hottest post whenever engagement changes
+const checkHottestPost = () => {
+    supabase.rpc('check_hottest_post_tracker').then(({ error }) => {
+        if (error) console.error('hottest tracker check failed:', error.message);
+    });
+};
+
 export const likeService = async(journalId, receiverId, senderId) =>{
     if(!journalId || !receiverId){
         throw new AppError(400, 'journalId or receiverId is undefined');
@@ -54,6 +61,7 @@ export const likeService = async(journalId, receiverId, senderId) =>{
             throw new AppError(500, 'supabase error while inserting likes');
         }
 
+        checkHottestPost();
         return {message: 'liked'};
     } else {
         const deleteNotifPromise = supabase
@@ -79,6 +87,7 @@ export const likeService = async(journalId, receiverId, senderId) =>{
             throw new AppError(500, 'supabase error while deleting like');
         }
 
+        checkHottestPost();
         return {message: 'unliked'};
     }
 
@@ -129,6 +138,8 @@ export const addCommentService = async(userId, comments, postId, receiverId, par
         console.error('supabase error while inserting comments or notifs', errorAddComment?.message || errorAddNotif?.message);
         throw new AppError(500, 'supabase error while inserting comments or notifs');
     }
+
+    checkHottestPost();
 
     // Non-fatal: send @mention notifications
     try {
@@ -194,6 +205,7 @@ export const addBookmarkService = async(userId, journalId) =>{
             throw new AppError(500, 'supabase error while adding bookmark');
         }
 
+        checkHottestPost();
         return {message: 'success'};
     } else {
         const {error: errorDeletingBookmark} = await supabase
@@ -206,6 +218,7 @@ export const addBookmarkService = async(userId, journalId) =>{
             console.error('supabase error while deleting bookmark', errorDeletingBookmark.message);
             throw new AppError(500, 'supabase error while deleting bookmark');
         }
+        checkHottestPost();
         return {message: 'deleted'}
     }
 }

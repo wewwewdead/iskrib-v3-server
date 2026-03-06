@@ -82,9 +82,14 @@ CREATE TABLE IF NOT EXISTS reading_progress (
     story_id UUID NOT NULL REFERENCES stories(id) ON DELETE CASCADE,
     chapter_id UUID NOT NULL REFERENCES chapters(id) ON DELETE CASCADE,
     scroll_position REAL DEFAULT 0,
+    paragraph_index INTEGER DEFAULT NULL,
+    paragraph_offset REAL DEFAULT NULL,
     last_read_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(user_id, story_id)
 );
+
+ALTER TABLE reading_progress ADD COLUMN IF NOT EXISTS paragraph_index INTEGER DEFAULT NULL;
+ALTER TABLE reading_progress ADD COLUMN IF NOT EXISTS paragraph_offset REAL DEFAULT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_reading_progress_user ON reading_progress(user_id);
 

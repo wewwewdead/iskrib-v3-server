@@ -84,9 +84,14 @@ export const addCommentController = async (req, res) => {
 export const saveProgressController = async (req, res) => {
     const userId = req.userId;
     const { storyId } = req.params;
-    const { chapter_id, scroll_position } = req.body;
+    const { chapter_id, scroll_position, paragraph_index, paragraph_offset } = req.body;
     try {
-        const result = await saveProgressService(storyId, userId, chapter_id, scroll_position);
+        const result = await saveProgressService(storyId, userId, {
+            chapter_id,
+            scroll_position,
+            paragraph_index,
+            paragraph_offset,
+        });
         return res.status(200).json(result);
     } catch (error) {
         const s = error?.status || 500;

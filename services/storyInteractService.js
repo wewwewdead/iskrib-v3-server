@@ -307,10 +307,37 @@ export const addCommentService = async (chapterId, userId, comment, paragraphInd
 };
 
 // ── Reading Progress ──
-export const saveProgressService = async (storyId, userId, chapterId, scrollPosition) => {
+const clampProgressValue = (value) => {
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return 0;
+    return Math.min(Math.max(parsed, 0), 1);
+};
+
+const parseParagraphIndex = (value) => {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = parseInt(value, 10);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const isMissingReadingProgressColumnError = (error) => {
+    const message = error?.message || '';
+    return message.includes("reading_progress") && (
+        message.includes("paragraph_index")
+        || message.includes("paragraph_offset")
+    );
+};
+
+export const saveProgressService = async (storyId, userId, progress) => {
+    const chapterId = progress?.chapter_id;
     if (!storyId || !userId || !chapterId) {
         throw { status: 400, error: 'storyId, userId, and chapterId are required' };
     }
+
+    const scrollPosition = clampProgressValue(progress?.scroll_position);
+    const paragraphIndex = parseParagraphIndex(progress?.paragraph_index);
+    const paragraphOffset = progress?.paragraph_offset === null || progress?.paragraph_offset === undefined
+        ? null
+        : clampProgressValue(progress.paragraph_offset);
 
     // Check if this is a new reader (no existing progress for this user+story)
     const { data: existing } = await supabase
@@ -320,17 +347,34 @@ export const saveProgressService = async (storyId, userId, chapterId, scrollPosi
         .eq('story_id', storyId)
         .maybeSingle();
 
-    const { data, error } = await supabase
+    const basePayload = {
+        user_id: userId,
+        story_id: storyId,
+        chapter_id: chapterId,
+        scroll_position: scrollPosition,
+        last_read_at: new Date().toISOString(),
+    };
+
+    let data;
+    let error;
+
+    ({ data, error } = await supabase
         .from('reading_progress')
         .upsert({
-            user_id: userId,
-            story_id: storyId,
-            chapter_id: chapterId,
-            scroll_position: scrollPosition || 0,
-            last_read_at: new Date().toISOString(),
+            ...basePayload,
+            paragraph_index: paragraphIndex,
+            paragraph_offset: paragraphOffset,
         }, { onConflict: 'user_id,story_id' })
         .select('*')
-        .single();
+        .single());
+
+    if (error && isMissingReadingProgressColumnError(error)) {
+        ({ data, error } = await supabase
+            .from('reading_progress')
+            .upsert(basePayload, { onConflict: 'user_id,story_id' })
+            .select('*')
+            .single());
+    }
 
     if (error) {
         console.error('supabase error saving progress:', error.message);
