@@ -31,6 +31,7 @@ RETURNS TABLE (
     repost_source_journal_id UUID,
     repost_caption TEXT,
     prompt_id INTEGER,
+    prompt_text TEXT,
     user_name TEXT,
     user_image_url TEXT,
     user_badge TEXT,
@@ -59,6 +60,7 @@ AS $$
         j.repost_source_journal_id,
         j.repost_caption,
         j.prompt_id,
+        wp.prompt_text,
         u.name AS user_name,
         u.image_url AS user_image_url,
         u.badge AS user_badge,
@@ -70,6 +72,7 @@ AS $$
     FROM public.journals j
     INNER JOIN public.follows f ON f.following_id = j.user_id AND f.follower_id = p_user_id
     LEFT JOIN public.users u ON u.id = j.user_id
+    LEFT JOIN public.writing_prompts wp ON wp.id = j.prompt_id
     WHERE j.privacy = 'public'
       AND (p_before IS NULL OR j.created_at < p_before)
     ORDER BY j.created_at DESC, j.id DESC

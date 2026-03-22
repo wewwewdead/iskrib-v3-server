@@ -51,6 +51,7 @@ RETURNS TABLE (
     repost_source_journal_id UUID,
     repost_caption TEXT,
     prompt_id INTEGER,
+    prompt_text TEXT,
     user_obj_id UUID,
     user_name TEXT,
     user_image_url TEXT,
@@ -110,6 +111,7 @@ BEGIN
         j.repost_source_journal_id,
         j.repost_caption::TEXT,
         j.prompt_id,
+        wp.prompt_text::TEXT,
         u.id AS user_obj_id,
         u.name::TEXT AS user_name,
         u.image_url::TEXT AS user_image_url,
@@ -126,6 +128,7 @@ BEGIN
         ) AS composite_score
     FROM public.journals j
     LEFT JOIN public.users u ON u.id = j.user_id
+    LEFT JOIN public.writing_prompts wp ON wp.id = j.prompt_id
     WHERE j.privacy = 'public'
       AND j.embeddings IS NOT NULL
       AND j.user_id != p_user_id

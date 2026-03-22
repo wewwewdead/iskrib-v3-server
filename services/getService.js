@@ -23,6 +23,7 @@ const JOURNAL_BASE_SELECT = `
     repost_source_journal_id,
     repost_caption,
     prompt_id,
+    writing_prompts(prompt_text),
     users(${JOURNAL_USER_SELECT})
 `;
 const JOURNAL_WITH_COUNTS_SELECT = `
@@ -48,6 +49,7 @@ const JOURNAL_METADATA_SELECT = `
     repost_source_journal_id,
     repost_caption,
     prompt_id,
+    writing_prompts(prompt_text),
     users(${JOURNAL_USER_SELECT})
 `;
 const JOURNAL_METADATA_WITH_COUNTS_SELECT = `
@@ -629,6 +631,7 @@ export const getFollowingFeedService = async(limit, userId, before) => {
         repost_source_journal_id: row.repost_source_journal_id,
         repost_caption: row.repost_caption,
         prompt_id: row.prompt_id,
+        writing_prompts: row.prompt_text ? { prompt_text: row.prompt_text } : null,
         users: { id: row.user_obj_id, name: row.user_name, image_url: row.user_image_url, badge: row.user_badge },
         like_count: [{ count: Number(row.like_count) }],
         reaction_count: [{ count: Number(row.reaction_count) }],
@@ -705,6 +708,7 @@ export const getForYouFeedService = async (limit, userId, offset) => {
         repost_source_journal_id: row.repost_source_journal_id,
         repost_caption: row.repost_caption,
         prompt_id: row.prompt_id,
+        writing_prompts: row.prompt_text ? { prompt_text: row.prompt_text } : null,
         users: { id: row.user_obj_id, name: row.user_name, image_url: row.user_image_url, badge: row.user_badge },
         like_count: [{ count: Number(row.like_count) }],
         reaction_count: [{ count: Number(row.reaction_count) }],
