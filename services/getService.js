@@ -1490,18 +1490,32 @@ export const searchJournalsService = async(query, limit, userId) => {
                 const matchIds = matches.map((row) => row.id);
                 const similarityMap = new Map(matches.map((row) => [row.id, row.similarity]));
 
-                const {data: journals, error: errorJournals} = await supabase
-                    .from('journals')
-                    .select(selectColumns)
-                    .in('id', matchIds)
-                    .eq('privacy', 'public');
+                const escapedQuerySemantic = normalizedQuery.replace(/[%_]/g, (m) => `\\${m}`);
 
-                if(errorJournals){
-                    console.error('supabase error while fetching semantic search journals:', errorJournals.message);
+                // Fetch semantic matches + title matches in parallel
+                const [semanticResult, titleBoostResult] = await Promise.all([
+                    supabase
+                        .from('journals')
+                        .select(selectColumns)
+                        .in('id', matchIds)
+                        .eq('privacy', 'public')
+                        .eq('status', 'published'),
+                    supabase
+                        .from('journals')
+                        .select(selectColumns)
+                        .eq('privacy', 'public')
+                        .eq('status', 'published')
+                        .ilike('title', `%${escapedQuerySemantic}%`)
+                        .order('created_at', {ascending: false})
+                        .limit(5)
+                ]);
+
+                if(semanticResult.error){
+                    console.error('supabase error while fetching semantic search journals:', semanticResult.error.message);
                     throw {status: 500, error: 'supabase error while fetching semantic search journals'};
                 }
 
-                const journalById = new Map((journals || []).map((journal) => [journal.id, journal]));
+                const journalById = new Map((semanticResult.data || []).map((journal) => [journal.id, journal]));
                 const orderedSemantic = matchIds
                     .map((id) => journalById.get(id))
                     .filter(Boolean)
@@ -1510,7 +1524,17 @@ export const searchJournalsService = async(query, limit, userId) => {
                         similarity: similarityMap.get(journal.id) || null
                     }));
 
-                const withInteraction = await attachUserInteractionFlags(orderedSemantic, userId);
+                // Merge: title matches first, then semantic (deduplicated)
+                const seenIds = new Set();
+                const merged = [];
+                for (const j of [...(titleBoostResult.data || []), ...orderedSemantic]) {
+                    if (!seenIds.has(j.id)) {
+                        seenIds.add(j.id);
+                        merged.push(j);
+                    }
+                }
+
+                const withInteraction = await attachUserInteractionFlags(merged, userId);
                 const hasMore = withInteraction.length > parsedLimit;
 
                 const optimizedData = decorateJournalCollection(withInteraction, JOURNAL_MEDIA_USAGE.feed);
