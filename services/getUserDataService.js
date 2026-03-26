@@ -93,22 +93,30 @@ export const getUserDataService = async(userId) =>{
     .select('id', {count: 'exact', head: true})
     .eq('follower_id', userId)
 
-    const [userDataResult, followerCountResult, followingCountResult] = await Promise.all([
-        userDataPromise, followerCountPromise, followingCountPromise
+    const postsCountPromise = supabase
+    .from('journals')
+    .select('id', {count: 'exact', head: true})
+    .eq('user_id', userId)
+    .eq('privacy', 'public')
+
+    const [userDataResult, followerCountResult, followingCountResult, postsCountResult] = await Promise.all([
+        userDataPromise, followerCountPromise, followingCountPromise, postsCountPromise
     ])
 
     const {data: userData, error: errorUserData} = userDataResult;
     const {count: followerCount, error: errorFollowerCount} = followerCountResult;
     const {count: followingCount, error: errorFollowingCount} = followingCountResult;
+    const {count: postsCount, error: errorPostsCount} = postsCountResult;
 
-    if(errorUserData || errorFollowerCount || errorFollowingCount){
-        console.error('supabase error while fetching user data:', errorUserData || errorFollowerCount || errorFollowingCount)
+    if(errorUserData || errorFollowerCount || errorFollowingCount || errorPostsCount){
+        console.error('supabase error while fetching user data:', errorUserData || errorFollowerCount || errorFollowingCount || errorPostsCount)
         throw {status: 400, message: 'supabase error while fetching user data'}
     }
     const data = {
         userData: Array.isArray(userData) ? userData.map((user) => decorateProfileUser(user)) : userData,
         followerCount: followerCount,
-        followingCount: followingCount
+        followingCount: followingCount,
+        postsCount: postsCount
     }
     return data;
 }
