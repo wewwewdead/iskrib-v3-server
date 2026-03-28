@@ -1,4 +1,4 @@
-import { addBookmarkService, addCommentService, addFollowsService, likeService, repostService, uploadOpinionReplyService } from "../services/interactService.js";
+import { addBookmarkService, addCommentService, addFollowsService, likeService, repostService, uploadOpinionReplyService, togglePinService, reorderPinService } from "../services/interactService.js";
 
 export const likeController = async(req, res) => {
     const {journalId, receiverId,} = req.body;
@@ -66,6 +66,32 @@ export const repostController = async(req, res) => {
         return res.status(status).json({error: message});
     }
 }
+
+export const togglePinController = async (req, res) => {
+    const { journalId } = req.body;
+    const userId = req.userId;
+    try {
+        const response = await togglePinService(journalId, userId);
+        return res.status(200).json(response);
+    } catch (error) {
+        const status = error?.status || 500;
+        const message = error?.error || error?.message || 'failed to toggle pin';
+        return res.status(status).json({ error: message });
+    }
+};
+
+export const reorderPinController = async (req, res) => {
+    const { journalId, direction } = req.body;
+    const userId = req.userId;
+    try {
+        const response = await reorderPinService(userId, journalId, direction);
+        return res.status(200).json(response);
+    } catch (error) {
+        const status = error?.status || 500;
+        const message = error?.error || error?.message || 'failed to reorder pin';
+        return res.status(status).json({ error: message });
+    }
+};
 
 export const addFollowController = async(req, res) => {
     const {followingId} = req.body;

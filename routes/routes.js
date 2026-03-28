@@ -8,8 +8,8 @@ import { checkUserController } from "../controller/checkUserController.js";
 import { addReplyOpinionController, completeOnboardingController, updateInterestsController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController, saveDraftController, publishDraftController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
-import { getBookmarksController, getCommentsController, getDraftsController, getFollowingFeedController, getForYouFeedController, getJournalByIdController, getJournalContentController, getJournalsController, getMonthlyHottestJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getViewOpinionController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchFollowingUsersController, searchJournalsController, searchUsersController } from "../controller/getController.js";
-import { addBookmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController } from "../controller/interactController.js";
+import { getBookmarksController, getCommentsController, getDraftsController, getFollowingFeedController, getForYouFeedController, getJournalByIdController, getJournalContentController, getJournalsController, getMonthlyHottestJournalsController, getPinnedJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getUserPinnedIdsController, getViewOpinionController, getVisitedPinnedJournalsController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchFollowingUsersController, searchJournalsController, searchUsersController } from "../controller/getController.js";
+import { addBookmarkController, addCommentController, addFollowController, addOpinionReplyController, likeController, repostController, togglePinController, reorderPinController } from "../controller/interactController.js";
 import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
 import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
 import { toggleVoteController, toggleLibraryController, getMyLibraryController, getCommentsController as getStoryCommentsController, getCommentCountsController, addCommentController as addStoryCommentController, saveProgressController, getProgressController } from "../controller/storyInteractController.js";
@@ -82,6 +82,12 @@ router.get('/profileMedia', requireAuth, getProfileMediaController);
 router.get('/visitedProfileMedia', requireAuth, getVisitedProfileMediaController);
 
 router.get('/visitedUserJournals', getVisitedUserJournalsController);
+
+router.post('/togglePin', writeLimiter, requireAuth, togglePinController);
+router.post('/reorderPin', writeLimiter, requireAuth, reorderPinController);
+router.get('/pinnedJournals', requireAuth, getPinnedJournalsController);
+router.get('/visitedPinnedJournals', getVisitedPinnedJournalsController);
+router.get('/userPinnedIds', requireAuth, getUserPinnedIdsController);
 
 router.delete('/deleteJournal/:journalId', requireAuth, deleteJournalContent);
 

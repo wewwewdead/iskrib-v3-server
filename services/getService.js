@@ -939,6 +939,13 @@ export const getUserJournalsService = async(limit, before, userId) =>{
 
     const parsedLimit = parseInt(limit);
 
+    // Exclude pinned posts from chronological list (they appear in their own section)
+    const { data: pinnedRows } = await supabase
+        .from('pinned_posts')
+        .select('journal_id')
+        .eq('user_id', userId);
+    const pinnedIds = pinnedRows?.map(r => r.journal_id) || [];
+
     let query = supabase
     .from('journals')
     .select(JOURNAL_METADATA_WITH_COUNTS_SELECT)
@@ -947,6 +954,10 @@ export const getUserJournalsService = async(limit, before, userId) =>{
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)
+
+    if (pinnedIds.length > 0) {
+        query = query.not('id', 'in', `(${pinnedIds.join(',')})`);
+    }
 
     if(before){
         query = query.lt('created_at', before);
@@ -1037,6 +1048,13 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
 
     const parsedLimit = parseInt(limit);
 
+    // Exclude pinned posts from chronological list
+    const { data: pinnedRows } = await supabase
+        .from('pinned_posts')
+        .select('journal_id')
+        .eq('user_id', userId);
+    const pinnedIds = pinnedRows?.map(r => r.journal_id) || [];
+
     let query = supabase
     .from('journals')
     .select(JOURNAL_METADATA_WITH_COUNTS_SELECT)
@@ -1046,6 +1064,10 @@ export const getVisitedUserJournalsService = async(limit, before, userId, logged
     .order('created_at', {ascending: false})
     .order('id', {ascending: false})
     .limit(parsedLimit + 1)
+
+    if (pinnedIds.length > 0) {
+        query = query.not('id', 'in', `(${pinnedIds.join(',')})`);
+    }
 
     if(before){
         query = query.lt('created_at', before);
@@ -1601,3 +1623,150 @@ export const searchJournalsService = async(query, limit, userId) => {
         mode: 'keyword'
     };
 }
+
+// ─── Pinned Posts Services ──────────────────────────────────────
+
+export const getPinnedJournalsService = async (userId) => {
+    if (!userId) throw { status: 400, error: 'userId is required' };
+
+    // Fetch pinned journal IDs with positions
+    const { data: pins, error: pinErr } = await supabase
+        .from('pinned_posts')
+        .select('journal_id, position')
+        .eq('user_id', userId)
+        .order('position', { ascending: true });
+
+    if (pinErr) {
+        console.error('supabase error fetching pinned posts:', pinErr.message);
+        throw { status: 500, error: 'supabase error while fetching pinned posts' };
+    }
+
+    if (!pins || pins.length === 0) return { data: [] };
+
+    const pinnedIds = pins.map(p => p.journal_id);
+    const positionMap = new Map(pins.map(p => [p.journal_id, p.position]));
+
+    // Fetch full journal metadata for pinned posts
+    const { data: journals, error: journalErr } = await supabase
+        .from('journals')
+        .select(JOURNAL_METADATA_WITH_COUNTS_SELECT)
+        .in('id', pinnedIds)
+        .eq('status', 'published');
+
+    if (journalErr) {
+        console.error('supabase error fetching pinned journals:', journalErr.message);
+        throw { status: 500, error: 'supabase error while fetching pinned journals' };
+    }
+
+    if (!journals || journals.length === 0) return { data: [] };
+
+    await attachRepostSources(journals);
+
+    // Attach interaction flags
+    const journalIds = journals.map(j => j.id);
+    const [likesResult, bookmarksResult, reactionsResult] = await Promise.all([
+        supabase.from('likes').select('journal_id').in('journal_id', journalIds).eq('user_id', userId),
+        supabase.from('bookmarks').select('journal_id').in('journal_id', journalIds).eq('user_id', userId),
+        supabase.from('reactions').select('journal_id, reaction_type').in('journal_id', journalIds).eq('user_id', userId),
+    ]);
+
+    const userLikesSet = new Set(likesResult.data?.map(j => j.journal_id) || []);
+    const userBookmarksSet = new Set(bookmarksResult.data?.map(j => j.journal_id) || []);
+    const userReactionMap = new Map((reactionsResult.data || []).map(r => [r.journal_id, r.reaction_type]));
+
+    const formatted = journals.map(journal => ({
+        ...journal,
+        has_liked: userLikesSet.has(journal.id),
+        has_bookmarked: userBookmarksSet.has(journal.id),
+        user_reaction: userReactionMap.get(journal.id) || null,
+        pin_position: positionMap.get(journal.id),
+    }));
+
+    // Sort by pin position
+    formatted.sort((a, b) => a.pin_position - b.pin_position);
+
+    return { data: decorateJournalCollection(formatted, JOURNAL_MEDIA_USAGE.feed) };
+};
+
+export const getVisitedPinnedJournalsService = async (userId, loggedInUserId) => {
+    if (!userId) throw { status: 400, error: 'userId is required' };
+
+    const { data: pins, error: pinErr } = await supabase
+        .from('pinned_posts')
+        .select('journal_id, position')
+        .eq('user_id', userId)
+        .order('position', { ascending: true });
+
+    if (pinErr) {
+        console.error('supabase error fetching visited pinned posts:', pinErr.message);
+        throw { status: 500, error: 'supabase error while fetching pinned posts' };
+    }
+
+    if (!pins || pins.length === 0) return { data: [] };
+
+    const pinnedIds = pins.map(p => p.journal_id);
+    const positionMap = new Map(pins.map(p => [p.journal_id, p.position]));
+
+    // Only public, published posts
+    const { data: journals, error: journalErr } = await supabase
+        .from('journals')
+        .select(JOURNAL_METADATA_WITH_COUNTS_SELECT)
+        .in('id', pinnedIds)
+        .eq('privacy', 'public')
+        .eq('status', 'published');
+
+    if (journalErr) {
+        console.error('supabase error fetching visited pinned journals:', journalErr.message);
+        throw { status: 500, error: 'supabase error while fetching pinned journals' };
+    }
+
+    if (!journals || journals.length === 0) return { data: [] };
+
+    await attachRepostSources(journals);
+
+    // Attach logged-in user's interaction flags
+    const journalIds = journals.map(j => j.id);
+    let userLikesSet = new Set();
+    let userBookmarksSet = new Set();
+    let userReactionMap = new Map();
+
+    if (loggedInUserId) {
+        const [likesResult, bookmarksResult, reactionsResult] = await Promise.all([
+            supabase.from('likes').select('journal_id').in('journal_id', journalIds).eq('user_id', loggedInUserId),
+            supabase.from('bookmarks').select('journal_id').in('journal_id', journalIds).eq('user_id', loggedInUserId),
+            supabase.from('reactions').select('journal_id, reaction_type').in('journal_id', journalIds).eq('user_id', loggedInUserId),
+        ]);
+        userLikesSet = new Set(likesResult.data?.map(j => j.journal_id) || []);
+        userBookmarksSet = new Set(bookmarksResult.data?.map(j => j.journal_id) || []);
+        userReactionMap = new Map((reactionsResult.data || []).map(r => [r.journal_id, r.reaction_type]));
+    }
+
+    const formatted = journals.map(journal => ({
+        ...journal,
+        has_liked: userLikesSet.has(journal.id),
+        has_bookmarked: userBookmarksSet.has(journal.id),
+        user_reaction: userReactionMap.get(journal.id) || null,
+        pin_position: positionMap.get(journal.id),
+    }));
+
+    formatted.sort((a, b) => a.pin_position - b.pin_position);
+
+    return { data: decorateJournalCollection(formatted, JOURNAL_MEDIA_USAGE.feed) };
+};
+
+export const getUserPinnedIdsService = async (userId) => {
+    if (!userId) throw { status: 400, error: 'userId is required' };
+
+    const { data, error } = await supabase
+        .from('pinned_posts')
+        .select('journal_id')
+        .eq('user_id', userId)
+        .order('position', { ascending: true });
+
+    if (error) {
+        console.error('supabase error fetching pinned IDs:', error.message);
+        throw { status: 500, error: 'supabase error while fetching pinned IDs' };
+    }
+
+    return { pinnedIds: data?.map(r => r.journal_id) || [] };
+};

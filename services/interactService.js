@@ -223,6 +223,175 @@ export const addBookmarkService = async(userId, journalId) =>{
     }
 }
 
+// ─── Pinned Posts ────────────────────────────────────────────────
+// Max 3 pins per user. Only published+public journals can be pinned.
+// Position is contiguous (1,2,3) and compacted on unpin.
+
+const MAX_PINS = 3;
+
+export const togglePinService = async (journalId, userId) => {
+    if (!journalId) throw new AppError(400, 'journalId is required');
+    if (!userId) throw new AppError(400, 'userId is required');
+
+    // Verify ownership and eligibility
+    const { data: journal, error: fetchError } = await supabase
+        .from('journals')
+        .select('id, user_id, status, privacy')
+        .eq('id', journalId)
+        .maybeSingle();
+
+    if (fetchError) {
+        console.error('supabase error fetching journal for pin:', fetchError.message);
+        throw new AppError(500, 'supabase error while fetching journal');
+    }
+    if (!journal || journal.user_id !== userId) {
+        throw new AppError(404, 'journal not found or you are not the owner');
+    }
+    if (journal.status !== 'published') {
+        throw new AppError(400, 'only published posts can be pinned');
+    }
+    if (journal.privacy !== 'public') {
+        throw new AppError(400, 'only public posts can be pinned');
+    }
+
+    // Check if already pinned
+    const { data: existing, error: existErr } = await supabase
+        .from('pinned_posts')
+        .select('journal_id, position')
+        .eq('user_id', userId)
+        .eq('journal_id', journalId)
+        .maybeSingle();
+
+    if (existErr) {
+        console.error('supabase error checking pin:', existErr.message);
+        throw new AppError(500, 'supabase error while checking pin');
+    }
+
+    if (existing) {
+        // Unpin: delete the row
+        const { error: delErr } = await supabase
+            .from('pinned_posts')
+            .delete()
+            .eq('user_id', userId)
+            .eq('journal_id', journalId);
+
+        if (delErr) {
+            console.error('supabase error unpinning:', delErr.message);
+            throw new AppError(500, 'supabase error while unpinning');
+        }
+
+        // Compact remaining positions
+        const { data: remaining, error: remErr } = await supabase
+            .from('pinned_posts')
+            .select('journal_id, position')
+            .eq('user_id', userId)
+            .order('position', { ascending: true });
+
+        if (!remErr && remaining && remaining.length > 0) {
+            for (let i = 0; i < remaining.length; i++) {
+                if (remaining[i].position !== i + 1) {
+                    await supabase
+                        .from('pinned_posts')
+                        .update({ position: i + 1 })
+                        .eq('user_id', userId)
+                        .eq('journal_id', remaining[i].journal_id);
+                }
+            }
+        }
+
+        return { message: 'unpinned' };
+    } else {
+        // Pin: check limit
+        const { count, error: countErr } = await supabase
+            .from('pinned_posts')
+            .select('journal_id', { count: 'exact', head: true })
+            .eq('user_id', userId);
+
+        if (countErr) {
+            console.error('supabase error counting pins:', countErr.message);
+            throw new AppError(500, 'supabase error while counting pins');
+        }
+        if (count >= MAX_PINS) {
+            throw new AppError(400, 'Unpin a post first to pin this one');
+        }
+
+        // Insert with next position
+        const newPosition = (count || 0) + 1;
+        const { error: insErr } = await supabase
+            .from('pinned_posts')
+            .insert({
+                user_id: userId,
+                journal_id: journalId,
+                position: newPosition,
+            });
+
+        if (insErr) {
+            console.error('supabase error pinning:', insErr.message);
+            throw new AppError(500, 'supabase error while pinning');
+        }
+
+        return { message: 'pinned' };
+    }
+};
+
+export const reorderPinService = async (userId, journalId, direction) => {
+    if (!userId) throw new AppError(400, 'userId is required');
+    if (!journalId) throw new AppError(400, 'journalId is required');
+    if (direction !== 'up' && direction !== 'down') {
+        throw new AppError(400, 'direction must be "up" or "down"');
+    }
+
+    // Fetch all pins for this user, ordered by position
+    const { data: pins, error: fetchErr } = await supabase
+        .from('pinned_posts')
+        .select('journal_id, position')
+        .eq('user_id', userId)
+        .order('position', { ascending: true });
+
+    if (fetchErr) {
+        console.error('supabase error fetching pins for reorder:', fetchErr.message);
+        throw new AppError(500, 'supabase error while fetching pins');
+    }
+
+    const targetIndex = pins?.findIndex(p => p.journal_id === journalId);
+    if (targetIndex === undefined || targetIndex === -1) {
+        throw new AppError(404, 'pin not found');
+    }
+
+    const neighborIndex = direction === 'up' ? targetIndex - 1 : targetIndex + 1;
+    if (neighborIndex < 0 || neighborIndex >= pins.length) {
+        throw new AppError(400, `cannot move ${direction}: already at ${direction === 'up' ? 'top' : 'bottom'}`);
+    }
+
+    const target = pins[targetIndex];
+    const neighbor = pins[neighborIndex];
+
+    // Swap positions
+    const { error: upd1 } = await supabase
+        .from('pinned_posts')
+        .update({ position: neighbor.position })
+        .eq('user_id', userId)
+        .eq('journal_id', target.journal_id);
+
+    if (upd1) {
+        console.error('supabase error swapping pin position (1):', upd1.message);
+        throw new AppError(500, 'supabase error while reordering');
+    }
+
+    const { error: upd2 } = await supabase
+        .from('pinned_posts')
+        .update({ position: target.position })
+        .eq('user_id', userId)
+        .eq('journal_id', neighbor.journal_id);
+
+    if (upd2) {
+        console.error('supabase error swapping pin position (2):', upd2.message);
+        throw new AppError(500, 'supabase error while reordering');
+    }
+
+    return { message: 'reordered' };
+};
+
 export const uploadOpinionReplyService = async(parent_id, opinion, user_id) =>{
     if(!parent_id || !user_id){
         throw new AppError(400, 'parentid or userid is undefined');

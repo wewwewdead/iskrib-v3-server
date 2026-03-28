@@ -1,4 +1,4 @@
-import { getBookmarksService, getCommentsService, getFollowingFeedService, getForYouFeedService, getJournalByIdService, getJournalContentService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getProfileMediaService, getUserJournalsService, getViewOpinionService, getVisitedUserJournalsService, searchFollowingUsersService, searchJournalsService, searchUsersService } from "../services/getService.js";
+import { getBookmarksService, getCommentsService, getFollowingFeedService, getForYouFeedService, getJournalByIdService, getJournalContentService, getJournalsService, getMonthlyHottestJournalsService, getOpinionReplyService, getPinnedJournalsService, getProfileMediaService, getUserJournalsService, getUserPinnedIdsService, getViewOpinionService, getVisitedPinnedJournalsService, getVisitedUserJournalsService, searchFollowingUsersService, searchJournalsService, searchUsersService } from "../services/getService.js";
 import { getDraftsService } from "../services/uploadService.js";
 
 
@@ -243,3 +243,36 @@ export const searchFollowingUsersController = async(req, res) => {
         return res.status(error?.status || 500).json({error: error?.error || 'failed to search following users'});
     }
 }
+
+export const getPinnedJournalsController = async (req, res) => {
+    const userId = req.userId;
+    try {
+        const data = await getPinnedJournalsService(userId);
+        return res.status(200).json(data);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({ error: error?.error || 'failed to fetch pinned journals' });
+    }
+};
+
+export const getVisitedPinnedJournalsController = async (req, res) => {
+    const { userId, loggedInUserId } = req.query;
+    try {
+        const data = await getVisitedPinnedJournalsService(userId, loggedInUserId);
+        return res.status(200).json(data);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({ error: error?.error || 'failed to fetch pinned journals' });
+    }
+};
+
+export const getUserPinnedIdsController = async (req, res) => {
+    const userId = req.userId;
+    try {
+        const data = await getUserPinnedIdsService(userId);
+        return res.status(200).json(data);
+    } catch (error) {
+        console.error(error);
+        return res.status(error?.status || 500).json({ error: error?.error || 'failed to fetch pinned IDs' });
+    }
+};
