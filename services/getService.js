@@ -839,12 +839,18 @@ export const getJournalByIdService = async (journalId, userId, { includeRepostCo
         throw { status: 400, error: 'journalId is undefined' };
     }
 
-    const { data: journal, error: journalError } = await supabase
+    let journalQuery = supabase
         .from('journals')
         .select(JOURNAL_WITH_COUNTS_SELECT)
-        .eq('id', journalId)
-        .eq('privacy', 'public')
-        .maybeSingle();
+        .eq('id', journalId);
+
+    if (userId) {
+        journalQuery = journalQuery.or(`user_id.eq.${userId},privacy.eq.public`);
+    } else {
+        journalQuery = journalQuery.eq('privacy', 'public');
+    }
+
+    const { data: journal, error: journalError } = await journalQuery.maybeSingle();
 
     if (journalError) {
         console.error('supabase error while fetching journal by id:', journalError.message);
