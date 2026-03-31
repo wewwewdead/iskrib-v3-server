@@ -185,6 +185,18 @@ const normalizeSearchQuery = (query) => {
         .trim();
 };
 
+const isJournalVisibleToViewer = (journal, viewerId) => {
+    if(!journal || typeof journal !== 'object'){
+        return false;
+    }
+
+    if(viewerId && journal.user_id === viewerId){
+        return true;
+    }
+
+    return journal.privacy === 'public' && journal.status === 'published';
+};
+
 const attachUserInteractionFlags = async (journals, userId) => {
     if(!Array.isArray(journals) || journals.length === 0){
         return [];
@@ -839,29 +851,24 @@ export const getJournalByIdService = async (journalId, userId, { includeRepostCo
         throw { status: 400, error: 'journalId is undefined' };
     }
 
-    let journalQuery = supabase
+    const { data: journal, error: journalError } = await supabase
         .from('journals')
-        .select(JOURNAL_WITH_COUNTS_SELECT)
-        .eq('id', journalId);
-
-    if (userId) {
-        journalQuery = journalQuery.or(`user_id.eq.${userId},privacy.eq.public`);
-    } else {
-        journalQuery = journalQuery.eq('privacy', 'public');
-    }
-
-    const { data: journal, error: journalError } = await journalQuery.maybeSingle();
+        .select(`${JOURNAL_WITH_COUNTS_SELECT}, status`)
+        .eq('id', journalId)
+        .maybeSingle();
 
     if (journalError) {
         console.error('supabase error while fetching journal by id:', journalError.message);
         throw { status: 500, error: 'supabase error while fetching journal by id' };
     }
 
-    if (!journal) {
+    if (!journal || !isJournalVisibleToViewer(journal, userId)) {
         return null;
     }
 
-    await attachRepostSources(journal, { includeContent: includeRepostContent });
+    const { status: _status, ...visibleJournal } = journal;
+
+    await attachRepostSources(visibleJournal, { includeContent: includeRepostContent });
 
     let hasLiked = false;
     let hasBookmarked = false;
@@ -901,7 +908,7 @@ export const getJournalByIdService = async (journalId, userId, { includeRepostCo
     }
 
     return decorateJournalMedia({
-        ...journal,
+        ...visibleJournal,
         has_liked: hasLiked,
         has_bookmarked: hasBookmarked,
         user_reaction: userReaction

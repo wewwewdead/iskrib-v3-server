@@ -93,6 +93,7 @@ BEGIN
     INTO max_hot
     FROM public.journals j2
     WHERE j2.privacy = 'public'
+      AND j2.status = 'published'
       AND j2.embeddings IS NOT NULL
       AND j2.created_at >= now() - interval '90 days';
 
@@ -130,6 +131,7 @@ BEGIN
     LEFT JOIN public.users u ON u.id = j.user_id
     LEFT JOIN public.writing_prompts wp ON wp.id = j.prompt_id
     WHERE j.privacy = 'public'
+      AND j.status = 'published'
       AND j.embeddings IS NOT NULL
       AND j.user_id != p_user_id
       AND COALESCE(j.is_repost, false) = false
@@ -194,6 +196,7 @@ BEGIN
     INTO max_hot
     FROM public.journals j2
     WHERE j2.privacy = 'public'
+      AND j2.status = 'published'
       AND j2.embeddings IS NOT NULL
       AND j2.created_at >= now() - (p_recency_days || ' days')::interval;
 
@@ -225,6 +228,7 @@ BEGIN
         FROM public.journals j
         LEFT JOIN public.users u ON u.id = j.user_id
         WHERE j.privacy = 'public'
+          AND j.status = 'published'
           AND j.embeddings IS NOT NULL
           AND COALESCE(j.is_repost, false) = false
           AND (1 - (j.embeddings <=> p_topic_embedding)) >= 0.30

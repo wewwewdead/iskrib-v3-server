@@ -98,6 +98,7 @@ export const getUserDataService = async(userId) =>{
     .select('id', {count: 'exact', head: true})
     .eq('user_id', userId)
     .eq('privacy', 'public')
+    .eq('status', 'published')
 
     const [userDataResult, followerCountResult, followingCountResult, postsCountResult] = await Promise.all([
         userDataPromise, followerCountPromise, followingCountPromise, postsCountPromise

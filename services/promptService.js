@@ -57,6 +57,7 @@ export const getPromptResponsesService = async (promptId, limit = 5, before = nu
         `, { count: !before ? 'exact' : undefined })
         .eq('prompt_id', promptId)
         .eq('privacy', 'public')
+        .eq('status', 'published')
         .order('created_at', { ascending: false })
         .order('id', { ascending: false })
         .limit(parsedLimit + 1);
@@ -83,7 +84,8 @@ export const getPromptResponsesService = async (promptId, limit = 5, before = nu
             .from('journals')
             .select('id', { count: 'exact', head: true })
             .eq('prompt_id', promptId)
-            .eq('privacy', 'public');
+            .eq('privacy', 'public')
+            .eq('status', 'published');
         // Approximate unique count — for prompts, count of responses is close to unique users
         // since each user typically responds once
         result.uniqueCount = totalResponses || 0;

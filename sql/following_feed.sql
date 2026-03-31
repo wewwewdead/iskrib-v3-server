@@ -74,12 +74,14 @@ AS $$
     LEFT JOIN public.users u ON u.id = j.user_id
     LEFT JOIN public.writing_prompts wp ON wp.id = j.prompt_id
     WHERE j.privacy = 'public'
+      AND j.status = 'published'
       AND (p_before IS NULL OR j.created_at < p_before)
     ORDER BY j.created_at DESC, j.id DESC
     LIMIT p_limit;
 $$;
 
 
+DROP INDEX IF EXISTS idx_journals_following_feed;
 CREATE INDEX IF NOT EXISTS idx_journals_following_feed
   ON journals(user_id, privacy, created_at DESC)
-  WHERE privacy = 'public';
+  WHERE privacy = 'public' AND status = 'published';

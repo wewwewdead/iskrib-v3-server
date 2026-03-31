@@ -74,7 +74,7 @@ router.get('/users/search', searchLimiter, searchUsersController);
 router.get('/users/following/search', searchLimiter, requireAuth, searchFollowingUsersController);
 router.get('/journal/:journalId/related', getRelatedPostsController);
 router.get('/journal/:journalId/content', requireAuth, getJournalContentController);
-router.get('/journal/:journalId', getJournalByIdController);
+router.get('/journal/:journalId', optionalAuth, getJournalByIdController);
 router.get('/explore/interests', requireAuth, getInterestSectionsController);
 
 router.get('/userJournals', requireAuth, getUserJournalsController);

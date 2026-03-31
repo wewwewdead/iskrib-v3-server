@@ -1,6 +1,7 @@
 -- ─── Weekly Recap RPC ───
 -- Returns personal + group stats for a given user and week.
 -- Week boundary: Monday 00:00 UTC → Sunday 23:59 UTC.
+-- Recap windows are based on first publish time so drafts only appear after publishing.
 
 CREATE OR REPLACE FUNCTION get_weekly_recap(p_user_id UUID, p_week_start TIMESTAMPTZ)
 RETURNS JSONB
@@ -26,9 +27,10 @@ BEGIN
     ) INTO v_personal
     FROM journals j
     WHERE j.user_id = p_user_id
-      AND j.created_at >= p_week_start
-      AND j.created_at < v_week_end
-      AND j.privacy = 'public';
+      AND COALESCE(j.published_at, j.created_at) >= p_week_start
+      AND COALESCE(j.published_at, j.created_at) < v_week_end
+      AND j.privacy = 'public'
+      AND j.status = 'published';
 
     -- ── Best personal post (most reactions) ──
     SELECT jsonb_build_object(
@@ -39,9 +41,10 @@ BEGIN
     ) INTO v_best_post
     FROM journals j
     WHERE j.user_id = p_user_id
-      AND j.created_at >= p_week_start
-      AND j.created_at < v_week_end
+      AND COALESCE(j.published_at, j.created_at) >= p_week_start
+      AND COALESCE(j.published_at, j.created_at) < v_week_end
       AND j.privacy = 'public'
+      AND j.status = 'published'
     ORDER BY j.cached_reaction_count DESC, COALESCE(j.views, 0) DESC
     LIMIT 1;
 
@@ -50,9 +53,10 @@ BEGIN
     SELECT jsonb_build_object(
         'total_posts', (
             SELECT COUNT(*)::INT FROM journals
-            WHERE created_at >= p_week_start
-              AND created_at < v_week_end
+            WHERE COALESCE(published_at, created_at) >= p_week_start
+              AND COALESCE(published_at, created_at) < v_week_end
               AND privacy = 'public'
+              AND status = 'published'
         ),
         'most_active_writer', (
             SELECT jsonb_build_object(
@@ -64,9 +68,10 @@ BEGIN
             )
             FROM journals j2
             JOIN users u ON u.id = j2.user_id
-            WHERE j2.created_at >= p_week_start
-              AND j2.created_at < v_week_end
+            WHERE COALESCE(j2.published_at, j2.created_at) >= p_week_start
+              AND COALESCE(j2.published_at, j2.created_at) < v_week_end
               AND j2.privacy = 'public'
+              AND j2.status = 'published'
             GROUP BY u.id, u.name, u.username, u.image_url
             ORDER BY COUNT(*) DESC
             LIMIT 1
@@ -81,9 +86,10 @@ BEGIN
             )
             FROM journals j3
             JOIN users u2 ON u2.id = j3.user_id
-            WHERE j3.created_at >= p_week_start
-              AND j3.created_at < v_week_end
+            WHERE COALESCE(j3.published_at, j3.created_at) >= p_week_start
+              AND COALESCE(j3.published_at, j3.created_at) < v_week_end
               AND j3.privacy = 'public'
+              AND j3.status = 'published'
             ORDER BY j3.cached_reaction_count DESC
             LIMIT 1
         )

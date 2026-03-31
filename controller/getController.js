@@ -94,7 +94,8 @@ export const getBookmarksController = async(req, res) =>{
 
 export const getJournalByIdController = async (req, res) => {
     const { journalId } = req.params;
-    const { userId, includeRepostContent } = req.query;
+    const { includeRepostContent } = req.query;
+    const userId = req.userId || null;
 
     try {
         const journal = await getJournalByIdService(journalId, userId, {
