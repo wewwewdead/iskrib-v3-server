@@ -12,17 +12,43 @@ export const extractBearerToken = (authHeader = "") => {
     return "";
 };
 
+export const isExpectedAuthFailure = (error) => {
+    if (!error) {
+        return false;
+    }
+
+    const message = typeof error.message === "string" ? error.message.toLowerCase() : "";
+    const code = typeof error.code === "string" ? error.code.toLowerCase() : "";
+
+    return (
+        error.name === "AuthSessionMissingError" ||
+        code === "session_not_found" ||
+        code === "session_expired" ||
+        code === "bad_jwt" ||
+        error.status === 401 ||
+        error.status === 403 ||
+        message.includes("auth session missing") ||
+        message.includes("session not found") ||
+        message.includes("jwt")
+    );
+};
+
 export const resolveAuthUser = async (token) => {
     if (!token) {
-        return { user: null, error: null };
+        return { user: null, error: null, isExpectedFailure: false };
     }
 
     const { data: authData, error: authError } = await supabase.auth.getUser(token);
     if (authError || !authData?.user?.id) {
-        return { user: null, error: authError || new Error("missing user id") };
+        const error = authError || new Error("missing user id");
+        return {
+            user: null,
+            error,
+            isExpectedFailure: isExpectedAuthFailure(error),
+        };
     }
 
-    return { user: authData.user, error: null };
+    return { user: authData.user, error: null, isExpectedFailure: false };
 };
 
 export const requireAuth = async (req, res, next) => {
@@ -31,9 +57,11 @@ export const requireAuth = async (req, res, next) => {
         return res.status(401).json({ error: 'not authorized' });
     }
 
-    const { user, error } = await resolveAuthUser(token);
+    const { user, error, isExpectedFailure } = await resolveAuthUser(token);
     if (error || !user?.id) {
-        console.error('auth middleware error:', error?.message || 'missing user id');
+        if (error && !isExpectedFailure) {
+            console.error('auth middleware error:', error.message || 'missing user id');
+        }
         return res.status(401).json({ error: 'not authorized' });
     }
 
