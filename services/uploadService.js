@@ -377,7 +377,7 @@ export const uploadJournalContentService = async(
         console.error('non-fatal: streak record failed:', streakErr?.message || streakErr);
     }
 
-    return { success: true, streakResult };
+    return { success: true, streakResult, journalId };
 }
 
 export const updateJournalService = async(content, title, journalId, userId) => {
@@ -777,7 +777,7 @@ export const publishDraftService = async(journalId, userId) => {
         console.error('non-fatal: streak record failed:', streakErr?.message || streakErr);
     }
 
-    return { success: true, streakResult };
+    return { success: true, streakResult, journalId };
 }
 
 export const getDraftsService = async(userId) => {

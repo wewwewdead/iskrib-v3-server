@@ -13,7 +13,7 @@ import { addBookmarkController, addCommentController, addFollowController, addOp
 import { createStoryController, getStoriesController, getStoryByIdController, updateStoryController, deleteStoryController, getMyStoriesController, getUserStoriesController } from "../controller/storyController.js";
 import { createChapterController, getChapterController, updateChapterController, deleteChapterController, reorderChaptersController } from "../controller/chapterController.js";
 import { toggleVoteController, toggleLibraryController, getMyLibraryController, getCommentsController as getStoryCommentsController, getCommentCountsController, addCommentController as addStoryCommentController, saveProgressController, getProgressController } from "../controller/storyInteractController.js";
-import { getRelatedPostsController } from "../controller/discoveryController.js";
+import { getRelatedPostsController, getUserEchoesController } from "../controller/discoveryController.js";
 import { getInterestSectionsController } from "../controller/exploreController.js";
 import { getTodaysPromptController, getPromptResponsesController } from "../controller/promptController.js";
 import { toggleReactionController, getPostReactionsController } from "../controller/reactionController.js";
@@ -73,6 +73,7 @@ router.get('/journals/search', searchLimiter, searchJournalsController);
 router.get('/users/search', searchLimiter, searchUsersController);
 router.get('/users/following/search', searchLimiter, requireAuth, searchFollowingUsersController);
 router.get('/journal/:journalId/related', getRelatedPostsController);
+router.get('/journal/:journalId/user-echoes', requireAuth, getUserEchoesController);
 router.get('/journal/:journalId/content', requireAuth, getJournalContentController);
 router.get('/journal/:journalId', optionalAuth, getJournalByIdController);
 router.get('/explore/interests', requireAuth, getInterestSectionsController);

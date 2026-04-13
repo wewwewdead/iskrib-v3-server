@@ -90,6 +90,9 @@ export const uploadJournalContentController = async(req, res) =>{
     try {
         const result = await uploadJournalContentService(content, title, userId, remixSourceJournalId, isRemix, promptId);
         const responsePayload = { message: 'Content saved successfully!' };
+        if (result?.journalId) {
+            responsePayload.id = result.journalId;
+        }
         if (result?.streakResult?.streakData) {
             responsePayload.streak = {
                 current_streak: result.streakResult.streakData.current_streak,
@@ -178,6 +181,9 @@ export const publishDraftController = async(req, res) => {
     try {
         const result = await publishDraftService(journalId, userId);
         const responsePayload = {message: 'Draft published successfully!'};
+        if(result?.journalId){
+            responsePayload.id = result.journalId;
+        }
         if(result?.streakResult?.streakData){
             responsePayload.streak = {
                 current_streak: result.streakResult.streakData.current_streak,

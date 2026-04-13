@@ -6,6 +6,13 @@ const relatedCache = createLRUCache(200, 10 * 60 * 1000); // 200 entries, 10min 
 const getRelatedCached = (key) => relatedCache.get(key);
 const setRelatedCached = (key, value) => relatedCache.set(key, value);
 
+// ── In-memory LRU cache for user echoes (Echo Bloom) ──
+// Keyed on `${userId}:${journalId}` so two users asking "my echoes of X"
+// get separate cache slots. TTL mirrors relatedCache.
+const userEchoesCache = createLRUCache(200, 10 * 60 * 1000);
+const getUserEchoesCached = (key) => userEchoesCache.get(key);
+const setUserEchoesCached = (key, value) => userEchoesCache.set(key, value);
+
 const CONFIDENCE_TIERS = {
     high:   { threshold: 0.60, maxResults: 5, label: 'high' },
     medium: { threshold: 0.48, maxResults: 3, label: 'medium' },
@@ -107,5 +114,78 @@ export async function getRelatedPostsService(journalId) {
         topSimilarity,
     };
     setRelatedCached(journalId, result);
+    return result;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Echo Bloom — user-scoped semantic similarity
+//
+// Returns the requesting user's OWN past journals that are semantically
+// close to `journalId`. Uses find_user_echoes (pgvector cosine on
+// gte-small embeddings), not a popularity or recency heuristic.
+//
+// Confidence tiers are looser than the cross-author /related endpoint
+// because a single user's archive is much smaller than the global pool
+// and will naturally produce lower top similarities.
+// ═══════════════════════════════════════════════════════════════════
+
+const USER_ECHOES_TIERS = {
+    high:   { threshold: 0.55, maxResults: 3, label: 'high' },
+    medium: { threshold: 0.42, maxResults: 2, label: 'medium' },
+    low:    { threshold: 0.32, maxResults: 1, label: 'low' },
+};
+
+function getUserEchoesTier(topSimilarity) {
+    if (topSimilarity >= USER_ECHOES_TIERS.high.threshold)   return USER_ECHOES_TIERS.high;
+    if (topSimilarity >= USER_ECHOES_TIERS.medium.threshold) return USER_ECHOES_TIERS.medium;
+    if (topSimilarity >= USER_ECHOES_TIERS.low.threshold)    return USER_ECHOES_TIERS.low;
+    return null;
+}
+
+export async function getUserEchoesService(journalId, userId) {
+    if (!journalId) {
+        throw { status: 400, error: 'journalId is required' };
+    }
+    if (!userId) {
+        throw { status: 401, error: 'authentication required' };
+    }
+
+    const cacheKey = `${userId}:${journalId}`;
+    const cached = getUserEchoesCached(cacheKey);
+    if (cached) return cached;
+
+    const { data, error } = await supabase.rpc('find_user_echoes', {
+        source_post_id: journalId,
+        source_user_id: userId,
+        match_count: 3,
+        similarity_floor: 0.32,
+    });
+
+    if (error) {
+        console.error('find_user_echoes RPC error:', error.message);
+        throw { status: 500, error: 'failed to find user echoes' };
+    }
+
+    if (!data || data.length === 0) {
+        const empty = { posts: [], confidence: 'none', topSimilarity: 0 };
+        setUserEchoesCached(cacheKey, empty);
+        return empty;
+    }
+
+    const topSimilarity = data[0]?.semantic_similarity || 0;
+    const tier = getUserEchoesTier(topSimilarity);
+
+    if (!tier) {
+        const noneResult = { posts: [], confidence: 'none', topSimilarity };
+        setUserEchoesCached(cacheKey, noneResult);
+        return noneResult;
+    }
+
+    const result = {
+        posts: data.slice(0, tier.maxResults),
+        confidence: tier.label,
+        topSimilarity,
+    };
+    setUserEchoesCached(cacheKey, result);
     return result;
 }
