@@ -21,6 +21,75 @@ const parseTextContentSafely = (content) => {
     return parsedData;
 }
 
+// ─── V3: parent thread validation ───
+//
+// `parent_journal_id` lets a user mark a journal as a continuation of
+// one of their OWN earlier journals ("Continue this thought"). This
+// helper returns {id, rootJournalId} for a valid parent, or null. It
+// rejects:
+//   - non-string inputs
+//   - parents that don't exist
+//   - parents owned by a different user (no cross-user threading)
+//   - parents that are themselves still drafts
+//
+// `rootJournalId` is the parent's own root_journal_id if set,
+// otherwise the parent's id (the parent is its own root). Callers
+// stamp the new child's root_journal_id with this value so every
+// thread member shares the same root pointer.
+//
+// On any rejection we return null (treated as "no parent") rather
+// than throwing, so that a bad parent id never blocks a publish.
+const resolveValidParentJournal = async (rawParentId, userId) => {
+    if(typeof rawParentId !== 'string'){
+        return null;
+    }
+    const trimmed = rawParentId.trim();
+    if(!trimmed){
+        return null;
+    }
+
+    const {data, error} = await supabase
+        .from('journals')
+        .select('id, user_id, status, root_journal_id')
+        .eq('id', trimmed)
+        .maybeSingle();
+
+    if(error){
+        // If the column doesn't exist yet (pre-migration), retry without
+        // root_journal_id so we still honor parent/child linkage.
+        if(error?.message?.includes('root_journal_id')){
+            const fallback = await supabase
+                .from('journals')
+                .select('id, user_id, status')
+                .eq('id', trimmed)
+                .maybeSingle();
+            if(fallback.error || !fallback.data){
+                return null;
+            }
+            if(fallback.data.user_id !== userId || fallback.data.status !== 'published'){
+                return null;
+            }
+            return {id: fallback.data.id, rootJournalId: null};
+        }
+        console.error('parent journal lookup failed:', error.message);
+        return null;
+    }
+    if(!data){
+        return null;
+    }
+    if(data.user_id !== userId){
+        return null;
+    }
+    if(data.status !== 'published'){
+        return null;
+    }
+
+    return {
+        id: data.id,
+        rootJournalId: data.root_journal_id ?? data.id,
+    };
+}
+
 export const uploadUserDataService = async(bio, name, image, userId, userEmail, username) =>{
     if(!userId){
         throw {status: 400, error: 'userId is undefined'};
@@ -233,7 +302,8 @@ export const uploadJournalContentService = async(
     userId,
     remixSourceJournalId = null,
     isRemix = false,
-    promptId = null
+    promptId = null,
+    parentJournalId = null
 ) =>{
     if(!userId){
         console.error('userId is undefined');
@@ -306,6 +376,15 @@ export const uploadJournalContentService = async(
         }
     }
 
+    const validatedParent = await resolveValidParentJournal(parentJournalId, userId);
+    if(validatedParent){
+        insertPayload.parent_journal_id = validatedParent.id;
+        // Child inherits the parent's root. If the parent has no stored
+        // root yet (pre-migration), use the parent's id — which matches
+        // the "root is self" invariant.
+        insertPayload.root_journal_id = validatedParent.rootJournalId ?? validatedParent.id;
+    }
+
     let insertResult = await supabase
     .from('journals')
     .insert(insertPayload)
@@ -316,11 +395,19 @@ export const uploadJournalContentService = async(
 
     if(error){
         const missingRemixColumns = error?.message?.includes('is_remix') || error?.message?.includes('remix_source_journal_id');
-        if(missingRemixColumns){
+        const missingParentColumn = error?.message?.includes('parent_journal_id');
+        const missingRootColumn = error?.message?.includes('root_journal_id');
+        if(missingRemixColumns || missingParentColumn || missingRootColumn){
             const fallbackPayload = {
                 ...payload,
                 embeddings: embeddingResult
             };
+            if(promptId){
+                const parsedPromptId = parseInt(promptId, 10);
+                if(!isNaN(parsedPromptId)){
+                    fallbackPayload.prompt_id = parsedPromptId;
+                }
+            }
 
             insertResult = await supabase
             .from('journals')
@@ -337,6 +424,23 @@ export const uploadJournalContentService = async(
     }
 
     const journalId = insertResult.data?.id;
+
+    // Maintain the "every row has a non-null root" invariant: if this
+    // post has no parent, it IS its own root. We couldn't set this at
+    // insert time because Postgres doesn't expose the new row's id in
+    // the INSERT payload, so we run a targeted UPDATE right after.
+    // Non-fatal on pre-migration envs (the column might not exist).
+    if(journalId && !validatedParent){
+        try {
+            await supabase
+                .from('journals')
+                .update({root_journal_id: journalId})
+                .eq('id', journalId)
+                .is('root_journal_id', null);
+        } catch (rootErr) {
+            console.error('non-fatal: self-root update failed:', rootErr?.message || rootErr);
+        }
+    }
 
     // Non-fatal: send mention notifications
     if(journalId){
@@ -583,7 +687,7 @@ export const updateInterestsService = async(userId, writingInterests, writingGoa
     return true;
 }
 
-export const saveDraftService = async(content, title, userId, draftId = null, promptId = null) => {
+export const saveDraftService = async(content, title, userId, draftId = null, promptId = null, parentJournalId = null) => {
     if(!userId){
         throw {status: 400, error: 'userId is undefined'};
     }
@@ -653,18 +757,58 @@ export const saveDraftService = async(content, title, userId, draftId = null, pr
         }
     }
 
-    const {data: insertData, error: insertError} = await supabase
+    const validatedParent = await resolveValidParentJournal(parentJournalId, userId);
+    if(validatedParent){
+        payload.parent_journal_id = validatedParent.id;
+        payload.root_journal_id = validatedParent.rootJournalId ?? validatedParent.id;
+    }
+
+    let insertResult = await supabase
         .from('journals')
         .insert(payload)
         .select('id')
         .single();
 
-    if(insertError){
-        console.error('supabase error creating draft:', insertError.message);
+    // Fallback for pre-migration environments where parent_journal_id
+    // and/or root_journal_id columns don't exist yet. Same pattern as
+    // the publish path.
+    if(insertResult.error){
+        const msg = insertResult.error?.message || '';
+        if(msg.includes('parent_journal_id') || msg.includes('root_journal_id')){
+            const fallbackPayload = {...payload};
+            delete fallbackPayload.parent_journal_id;
+            delete fallbackPayload.root_journal_id;
+            insertResult = await supabase
+                .from('journals')
+                .insert(fallbackPayload)
+                .select('id')
+                .single();
+        }
+    }
+
+    if(insertResult.error){
+        console.error('supabase error creating draft:', insertResult.error.message);
         throw {status: 500, error: 'failed to create draft'};
     }
 
-    return {id: insertData.id};
+    const newDraftId = insertResult.data.id;
+
+    // Self-root invariant for drafts without a parent. Non-fatal if the
+    // column isn't there yet. When the draft is later published, the
+    // row already carries the correct root_journal_id.
+    if(newDraftId && !validatedParent){
+        try {
+            await supabase
+                .from('journals')
+                .update({root_journal_id: newDraftId})
+                .eq('id', newDraftId)
+                .is('root_journal_id', null);
+        } catch (rootErr) {
+            console.error('non-fatal: draft self-root update failed:', rootErr?.message || rootErr);
+        }
+    }
+
+    return {id: newDraftId};
 }
 
 export const publishDraftService = async(journalId, userId) => {

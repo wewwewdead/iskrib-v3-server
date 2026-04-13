@@ -1,4 +1,4 @@
-import { getRelatedPostsService, getUserEchoesService } from "../services/discoveryService.js";
+import { getRelatedPostsService, getUserEchoesService, getJournalThreadService } from "../services/discoveryService.js";
 
 export const getRelatedPostsController = async (req, res) => {
     const { journalId } = req.params;
@@ -23,5 +23,20 @@ export const getUserEchoesController = async (req, res) => {
     } catch (error) {
         const s = error?.status || 500;
         return res.status(s).json({ error: error?.error || 'failed to fetch user echoes' });
+    }
+};
+
+// V3 — Thread: returns the full parent/child chain containing `journalId`.
+// Optional auth; if the caller is authenticated, their user id is passed
+// to the RPC so their own private posts remain visible in the thread.
+export const getJournalThreadController = async (req, res) => {
+    const { journalId } = req.params;
+    const viewerUserId = req.userId ?? null;
+    try {
+        const result = await getJournalThreadService(journalId, viewerUserId);
+        return res.status(200).json(result);
+    } catch (error) {
+        const s = error?.status || 500;
+        return res.status(s).json({ error: error?.error || 'failed to fetch journal thread' });
     }
 };

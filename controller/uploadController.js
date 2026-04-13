@@ -84,11 +84,12 @@ export const uploadJournalContentController = async(req, res) =>{
         title,
         remix_source_journal_id: remixSourceJournalId,
         is_remix: isRemix,
-        prompt_id: promptId
+        prompt_id: promptId,
+        parent_journal_id: parentJournalId
     } = req.body;
     const userId = req.userId;
     try {
-        const result = await uploadJournalContentService(content, title, userId, remixSourceJournalId, isRemix, promptId);
+        const result = await uploadJournalContentService(content, title, userId, remixSourceJournalId, isRemix, promptId, parentJournalId);
         const responsePayload = { message: 'Content saved successfully!' };
         if (result?.journalId) {
             responsePayload.id = result.journalId;
@@ -161,11 +162,11 @@ export const updateInterestsController = async(req, res) => {
 }
 
 export const saveDraftController = async(req, res) => {
-    const {content, title, draftId, prompt_id: promptId} = req.body;
+    const {content, title, draftId, prompt_id: promptId, parent_journal_id: parentJournalId} = req.body;
     const userId = req.userId;
 
     try {
-        const result = await saveDraftService(content, title, userId, draftId, promptId);
+        const result = await saveDraftService(content, title, userId, draftId, promptId, parentJournalId);
         return res.status(200).json(result);
     } catch (error) {
         console.error('failed to save draft:', error);

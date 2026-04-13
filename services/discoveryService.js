@@ -189,3 +189,41 @@ export async function getUserEchoesService(journalId, userId) {
     setUserEchoesCached(cacheKey, result);
     return result;
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// V3 — Thread retrieval
+//
+// Backed by find_journal_thread (recursive CTE over parent_journal_id).
+// Returns the full chain containing `journalId`, ordered root → leaf,
+// with privacy honoring the viewer: the viewer always sees their own
+// posts, other users' private posts are filtered out by the RPC.
+//
+// Intentionally NOT cached — threads mutate whenever a new child is
+// published, and the volume is low enough that a DB hit per read is
+// fine. If thread reads become a hot path, add an LRU keyed on
+// `${viewerId}:${journalId}` with short TTL (~60s).
+// ═══════════════════════════════════════════════════════════════════
+
+export async function getJournalThreadService(journalId, viewerUserId = null) {
+    if (!journalId) {
+        throw { status: 400, error: 'journalId is required' };
+    }
+
+    const { data, error } = await supabase.rpc('find_journal_thread', {
+        source_id: journalId,
+        viewer_user_id: viewerUserId,
+        max_depth: 20,
+    });
+
+    if (error) {
+        // If the RPC doesn't exist yet (pre-migration environment),
+        // fail soft with an empty thread rather than 500ing the request.
+        if (error?.message?.includes('find_journal_thread')) {
+            return { posts: [] };
+        }
+        console.error('find_journal_thread RPC error:', error.message);
+        throw { status: 500, error: 'failed to fetch journal thread' };
+    }
+
+    return { posts: data || [] };
+}
