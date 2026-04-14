@@ -204,7 +204,11 @@ export async function getUserEchoesService(journalId, userId) {
 // `${viewerId}:${journalId}` with short TTL (~60s).
 // ═══════════════════════════════════════════════════════════════════
 
-export async function getJournalThreadService(journalId, viewerUserId = null) {
+export async function getJournalThreadService(
+    journalId,
+    viewerUserId = null,
+    { limit = null, offset = 0 } = {},
+) {
     if (!journalId) {
         throw { status: 400, error: 'journalId is required' };
     }
@@ -213,17 +217,31 @@ export async function getJournalThreadService(journalId, viewerUserId = null) {
         source_id: journalId,
         viewer_user_id: viewerUserId,
         max_depth: 20,
+        page_limit: limit,
+        page_offset: offset,
     });
 
     if (error) {
         // If the RPC doesn't exist yet (pre-migration environment),
         // fail soft with an empty thread rather than 500ing the request.
         if (error?.message?.includes('find_journal_thread')) {
-            return { posts: [] };
+            return { posts: [], totalCount: 0, hasMore: false };
         }
         console.error('find_journal_thread RPC error:', error.message);
         throw { status: 500, error: 'failed to fetch journal thread' };
     }
 
-    return { posts: data || [] };
+    const rows = data || [];
+    // Every row from the RPC carries the same total_count (window fn).
+    // An empty page means either the thread is empty or the offset was
+    // past the end — hasMore is false in both cases.
+    const totalCount = rows.length > 0 ? Number(rows[0].total_count) || 0 : 0;
+    const pageStart = Number(offset) || 0;
+    const hasMore = pageStart + rows.length < totalCount;
+
+    // Strip the total_count window column from each row so the wire
+    // shape stays clean — it's reported once at the top level.
+    const posts = rows.map(({ total_count, ...rest }) => rest);
+
+    return { posts, totalCount, hasMore };
 }
