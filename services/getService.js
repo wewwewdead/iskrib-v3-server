@@ -51,6 +51,8 @@ const JOURNAL_METADATA_SELECT = `
     repost_source_journal_id,
     repost_caption,
     prompt_id,
+    parent_journal_id,
+    root_journal_id,
     writing_prompts(prompt_text),
     users(${JOURNAL_USER_SELECT})
 `;
