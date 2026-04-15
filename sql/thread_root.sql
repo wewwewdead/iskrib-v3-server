@@ -13,12 +13,12 @@
 -- advantage of it, with a fallback for any row whose root_journal_id
 -- is still null (pre-migration safety).
 --
--- Same-user invariant: insert-side validation (resolveValidParentJournalId
--- in uploadService.js) rejects cross-user parents, and the RPC defensively
--- filters by the root's user_id so even a hypothetical bad row wouldn't
--- leak across users.
+-- Cross-user threading: threads may span multiple authors. The RPC
+-- walks parent_journal_id regardless of ownership and relies only on
+-- the per-row privacy check for visibility.
 --
--- Additive migration. Safe to re-run.
+-- Additive migration. Safe to re-run. Superseded by thread_pagination.sql
+-- in environments that have applied the 5-arg pagination migration.
 -- ═══════════════════════════════════════════════════════════════════
 
 -- 1. Add the column (nullable during backfill, practically always set after).
@@ -79,7 +79,6 @@ SET search_path = public, extensions
 AS $$
 DECLARE
     thread_root UUID;
-    root_user_id UUID;
 BEGIN
     -- Prefer the stored root_journal_id; fall back to the source's own
     -- id if the row hasn't been backfilled yet (safety for pre-migration
@@ -95,35 +94,20 @@ BEGIN
         RETURN;
     END IF;
 
-    -- Same-user enforcement: a thread belongs to one author. Insert-side
-    -- validation prevents cross-user parents; this is the defensive
-    -- second gate at read time.
-    SELECT j.user_id
-    INTO root_user_id
-    FROM public.journals j
-    WHERE j.id = thread_root;
-
-    IF root_user_id IS NULL THEN
-        RETURN;
-    END IF;
-
-    -- Walk descendants from the root with depth tracking. We still need
-    -- a recursive CTE to compute depth, but it only visits rows in this
-    -- one thread (thanks to parent_journal_id linkage originating at
-    -- thread_root).
+    -- Walk descendants from the root with depth tracking. Threads may
+    -- span multiple authors; per-row privacy is enforced in the SELECT
+    -- below.
     RETURN QUERY
     WITH RECURSIVE descendants AS (
         SELECT j.id, j.parent_journal_id, j.root_journal_id, 0 AS d
         FROM public.journals j
         WHERE j.id = thread_root
-          AND j.user_id = root_user_id
           AND j.status = 'published'
         UNION ALL
         SELECT j.id, j.parent_journal_id, j.root_journal_id, c.d + 1
         FROM public.journals j
         JOIN descendants c ON j.parent_journal_id = c.id
         WHERE c.d < max_depth
-          AND j.user_id = root_user_id
           AND j.status = 'published'
     )
     SELECT

@@ -14,7 +14,9 @@
 --     mobile ThreadScreen uses limit=20 with increasing offsets via
 --     useInfiniteQuery.
 --
--- Privacy / same-user gates unchanged.
+-- Cross-user threading: threads may span multiple authors. The walk
+-- follows parent_journal_id regardless of who owns each row; only the
+-- per-row privacy check gates visibility at read time.
 -- Additive migration. Safe to re-run.
 -- ═══════════════════════════════════════════════════════════════════
 
@@ -51,7 +53,6 @@ SET search_path = public, extensions
 AS $$
 DECLARE
     thread_root UUID;
-    root_user_id UUID;
     effective_limit INT;
     effective_offset INT;
 BEGIN
@@ -65,15 +66,6 @@ BEGIN
         RETURN;
     END IF;
 
-    SELECT j.user_id
-    INTO root_user_id
-    FROM public.journals j
-    WHERE j.id = thread_root;
-
-    IF root_user_id IS NULL THEN
-        RETURN;
-    END IF;
-
     effective_offset := GREATEST(COALESCE(page_offset, 0), 0);
     effective_limit := page_limit;  -- NULL means unlimited, handled by NULLIF below
 
@@ -82,14 +74,12 @@ BEGIN
         SELECT j.id, j.parent_journal_id, j.root_journal_id, 0 AS d
         FROM public.journals j
         WHERE j.id = thread_root
-          AND j.user_id = root_user_id
           AND j.status = 'published'
         UNION ALL
         SELECT j.id, j.parent_journal_id, j.root_journal_id, c.d + 1
         FROM public.journals j
         JOIN descendants c ON j.parent_journal_id = c.id
         WHERE c.d < max_depth
-          AND j.user_id = root_user_id
           AND j.status = 'published'
     ),
     visible AS (

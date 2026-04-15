@@ -6,8 +6,8 @@
 -- thread parent. This is DIFFERENT from:
 --   - repost_source_journal_id (reposts — another user's post)
 --   - remix_source_journal_id (remix — creative derivative)
--- Parent linkage is specifically for a user continuing their OWN
--- earlier thought. The upload service enforces same-author on insert.
+-- Parent linkage supports cross-user threading: any user may continue
+-- any public journal, producing a multi-author thread chain.
 --
 -- Index is PARTIAL so it only covers the rows that actually declare
 -- a parent — cheap to maintain, fast to walk.

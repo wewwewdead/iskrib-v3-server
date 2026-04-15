@@ -24,12 +24,12 @@ const parseTextContentSafely = (content) => {
 // ─── V3: parent thread validation ───
 //
 // `parent_journal_id` lets a user mark a journal as a continuation of
-// one of their OWN earlier journals ("Continue this thought"). This
-// helper returns {id, rootJournalId} for a valid parent, or null. It
-// rejects:
+// any earlier published journal ("Continue this thought") — the parent
+// may belong to any user, so threads can be cross-user conversations.
+// This helper returns {id, rootJournalId} for a valid parent, or null.
+// It rejects:
 //   - non-string inputs
 //   - parents that don't exist
-//   - parents owned by a different user (no cross-user threading)
 //   - parents that are themselves still drafts
 //
 // `rootJournalId` is the parent's own root_journal_id if set,
@@ -39,6 +39,10 @@ const parseTextContentSafely = (content) => {
 //
 // On any rejection we return null (treated as "no parent") rather
 // than throwing, so that a bad parent id never blocks a publish.
+// userId is accepted for signature stability with existing callers
+// but no longer used for authorization — any authenticated user may
+// thread onto any published journal.
+// eslint-disable-next-line no-unused-vars
 const resolveValidParentJournal = async (rawParentId, userId) => {
     if(typeof rawParentId !== 'string'){
         return null;
@@ -60,13 +64,13 @@ const resolveValidParentJournal = async (rawParentId, userId) => {
         if(error?.message?.includes('root_journal_id')){
             const fallback = await supabase
                 .from('journals')
-                .select('id, user_id, status')
+                .select('id, status')
                 .eq('id', trimmed)
                 .maybeSingle();
             if(fallback.error || !fallback.data){
                 return null;
             }
-            if(fallback.data.user_id !== userId || fallback.data.status !== 'published'){
+            if(fallback.data.status !== 'published'){
                 return null;
             }
             return {id: fallback.data.id, rootJournalId: null};
@@ -75,9 +79,6 @@ const resolveValidParentJournal = async (rawParentId, userId) => {
         return null;
     }
     if(!data){
-        return null;
-    }
-    if(data.user_id !== userId){
         return null;
     }
     if(data.status !== 'published'){
