@@ -18,8 +18,9 @@ import supabase from "./supabase.js";
  */
 
 // Only safe, public profile columns. Never select private fields here.
+// `badge` is a public distinction (already shown in the feed, Explore, etc.).
 const SAFE_PROFILE_SELECT = `
-    id, username, name, image_url, bio,
+    id, username, name, image_url, bio, badge,
     background, profile_font_color,
     profile_theme, profile_theme_updated_at, created_at
 `;
@@ -39,6 +40,7 @@ const toCard = (user, counts) => ({
     name: user.name,
     avatar: user.image_url || null,
     bio: user.bio || null,
+    badge: user.badge || null,
     background: user.background || null,
     profile_font_color: user.profile_font_color || null,
     profile_theme: user.profile_theme || null,

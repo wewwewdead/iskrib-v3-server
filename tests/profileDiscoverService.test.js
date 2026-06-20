@@ -104,6 +104,7 @@ describe("getProfileDiscoverService", () => {
             name: "Alice",
             avatar: "https://img/alice.png",
             bio: "writer of small rooms",
+            badge: null,
             background: null,
             profile_font_color: "#fff",
             profile_theme: { version: 1, presetId: "noir" },

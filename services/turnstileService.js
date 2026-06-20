@@ -1,7 +1,9 @@
 
 export const verifyTurnstileService = async(token) =>{
     if(!token) {
-        throw {status: 400, message: 'No token provided'}
+        const err = new Error('No token provided');
+        err.status = 400;
+        throw err;
     }
 
     const secretKey = process.env.SECRET_KEY;
@@ -18,7 +20,10 @@ export const verifyTurnstileService = async(token) =>{
         const data = await response.json();
 
         if(!data.success){
-            throw {status: 400, message: 'Verification failed'}
+            const err = new Error('Turnstile verification failed');
+            err.status = 400;
+            err.cloudflareErrors = data['error-codes'] || [];
+            throw err;
         }
 
         return true;

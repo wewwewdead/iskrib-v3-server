@@ -29,6 +29,7 @@ import { recordProfileVisitController } from "../controller/profileVisitControll
 import { remixProfileThemeController } from "../controller/profileThemeRemixController.js";
 import { getProfileDiscoverController } from "../controller/profileDiscoverController.js";
 import { getProfileActivitySummaryController } from "../controller/profileActivitySummaryController.js";
+import { deleteAccountController } from "../controller/accountDeletionController.js";
 
 const router = express.Router();
 
@@ -215,5 +216,8 @@ router.get('/analytics', requireAuth, getWriterAnalyticsController);
 
 // ─── Streaks ───
 router.get('/streak/:userId', getStreakController);
+
+// ─── Account deletion (Danger Zone) ───
+router.delete('/account', writeLimiter, requireAuth, deleteAccountController);
 
 export default router;
