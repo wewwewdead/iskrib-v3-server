@@ -27,6 +27,8 @@ import { updateProfileThemeController } from "../controller/profileThemeControll
 import { getProfileGuestbookController, createGuestbookEntryController, deleteGuestbookEntryController } from "../controller/profileGuestbookController.js";
 import { recordProfileVisitController } from "../controller/profileVisitController.js";
 import { remixProfileThemeController } from "../controller/profileThemeRemixController.js";
+import { getProfileDiscoverController } from "../controller/profileDiscoverController.js";
+import { getProfileActivitySummaryController } from "../controller/profileActivitySummaryController.js";
 
 const router = express.Router();
 
@@ -166,6 +168,10 @@ router.post('/users/:username/visit', optionalAuth, recordProfileVisitController
 
 // ── Profile Theme Remix ("Use this theme") ──
 router.post('/users/:username/theme/remix', writeLimiter, requireAuth, remixProfileThemeController);
+
+// ── Profile Discovery (Phase 3) ──
+router.get('/profiles/discover', getProfileDiscoverController);
+router.get('/profile/activity-summary', requireAuth, getProfileActivitySummaryController);
 
 // ── Story routes ──
 router.post('/stories', requireAuth, upload, createStoryController);
