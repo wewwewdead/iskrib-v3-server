@@ -4,6 +4,7 @@ import { createMediaResponsePayload } from "../utils/mediaVariants.js";
 const USER_PROFILE_SELECT = `
     id, name, bio, image_url, badge, username,
     background, profile_font_color, dominant_colors, secondary_colors,
+    profile_theme,
     writing_interests, writing_goal,
     onboarding_completed, onboarding_completed_at,
     created_at

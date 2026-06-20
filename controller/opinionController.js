@@ -9,7 +9,7 @@ const OPINION_LIST_SELECT = `
     opinion,
     reply_count,
     created_at,
-    users(name, id, user_email, image_url, badge)
+    users(name, id, username, user_email, image_url, badge)
 `;
 const MY_OPINION_SELECT = `
     id,
@@ -26,7 +26,7 @@ const USER_OPINION_SELECT = `
     opinion,
     reply_count,
     created_at,
-    users(name, image_url, id, badge)
+    users(name, image_url, id, username, badge)
 `;
 
 const parseOpinionLimit = (raw) => {

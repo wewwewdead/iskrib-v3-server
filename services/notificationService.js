@@ -5,7 +5,12 @@ const NOTIFICATION_LIMIT_MIN = 1;
 const NOTIFICATION_LIMIT_MAX = 20;
 const NOTIFICATION_DEFAULT_LIMIT = 5;
 
-const NOTIFICATION_JOURNAL_SELECT = `
+// Target columns are added Phase-2-followup. The fetch falls back to the base
+// select if the migration (notification_targets.sql) hasn't run yet, so the
+// notification list never breaks on a missing column.
+const NOTIFICATION_TARGET_COLUMNS = `target_type, target_id, target_user_id, target_metadata`;
+
+const buildNotificationJournalSelect = (withTargets) => `
     id,
     sender_id,
     receiver_id,
@@ -15,6 +20,7 @@ const NOTIFICATION_JOURNAL_SELECT = `
     reaction_type,
     read,
     created_at,
+    ${withTargets ? `${NOTIFICATION_TARGET_COLUMNS},` : ""}
     journals!journal_id(
         title,
         preview_text,
@@ -22,8 +28,44 @@ const NOTIFICATION_JOURNAL_SELECT = `
         created_at,
         users(id, name, image_url, badge)
     ),
-    users!sender_id(id, name, image_url, badge)
+    users!sender_id(id, name, username, image_url, badge)
 `;
+
+/**
+ * True when a Postgres/PostgREST error indicates a notification target column
+ * doesn't exist yet (migration not applied). Used to fall back safely.
+ */
+export const isMissingTargetColumnError = (error) => {
+    if (!error) return false;
+    const code = error.code || "";
+    if (code === "42703" || code === "PGRST204") return true;
+    const message = `${error.message || ""} ${error.details || ""}`.toLowerCase();
+    return (
+        message.includes("target_type") ||
+        message.includes("target_id") ||
+        message.includes("target_user_id") ||
+        message.includes("target_metadata")
+    );
+};
+
+/**
+ * Central notification creator. Accepts an optional `target` (the object
+ * returned by a notificationTargets builder) and spreads it into the insert.
+ * If the target columns aren't present yet, it retries without them so the
+ * notification is still created.
+ */
+export const createNotification = async ({ senderId, receiverId, type, target = null, read = false }) => {
+    const base = { sender_id: senderId, receiver_id: receiverId, type, read };
+    const payload = target ? { ...base, ...target } : base;
+
+    let { error } = await supabase.from("notifications").insert(payload);
+
+    if (error && target && isMissingTargetColumnError(error)) {
+        ({ error } = await supabase.from("notifications").insert(base));
+    }
+
+    return { error };
+};
 
 const NOTIFICATION_OPINION_SELECT = `
     id,
@@ -34,7 +76,7 @@ const NOTIFICATION_OPINION_SELECT = `
     read,
     created_at,
     opinions!opinion_id(id, opinion, user_id, created_at),
-    users!sender_id(id, name, image_url, badge)
+    users!sender_id(id, name, username, image_url, badge)
 `;
 
 export const parseLimitWithinRange = (value, min = NOTIFICATION_LIMIT_MIN, max = NOTIFICATION_LIMIT_MAX, fallback = NOTIFICATION_DEFAULT_LIMIT) => {
@@ -79,13 +121,18 @@ const decorateNotificationMedia = (notification) => {
 export const getNotificationsService = async (userId, { limit, before, unreadOnly = false }) => {
     const fetchLimit = limit + 1;
 
-    let journalQuery = supabase
-        .from('notifications')
-        .select(NOTIFICATION_JOURNAL_SELECT)
-        .eq('receiver_id', userId)
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .limit(fetchLimit);
+    const makeJournalQuery = (selectStr) => {
+        let q = supabase
+            .from('notifications')
+            .select(selectStr)
+            .eq('receiver_id', userId)
+            .order('created_at', { ascending: false })
+            .order('id', { ascending: false })
+            .limit(fetchLimit);
+        if (unreadOnly) q = q.eq('read', false);
+        if (before) q = q.lt('created_at', before);
+        return q;
+    };
 
     let opinionQuery = supabase
         .from('notification_opinions')
@@ -96,16 +143,22 @@ export const getNotificationsService = async (userId, { limit, before, unreadOnl
         .limit(fetchLimit);
 
     if (unreadOnly) {
-        journalQuery = journalQuery.eq('read', false);
         opinionQuery = opinionQuery.eq('read', false);
     }
 
     if (before) {
-        journalQuery = journalQuery.lt('created_at', before);
         opinionQuery = opinionQuery.lt('created_at', before);
     }
 
-    const [journalResult, opinionResult] = await Promise.all([journalQuery, opinionQuery]);
+    let [journalResult, opinionResult] = await Promise.all([
+        makeJournalQuery(buildNotificationJournalSelect(true)),
+        opinionQuery,
+    ]);
+
+    // Fall back to the target-less select if the migration hasn't run yet.
+    if (journalResult.error && isMissingTargetColumnError(journalResult.error)) {
+        journalResult = await makeJournalQuery(buildNotificationJournalSelect(false));
+    }
 
     if (journalResult.error) {
         console.error('error fetching notifications:', journalResult.error);

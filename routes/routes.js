@@ -22,7 +22,11 @@ import { getWriterAnalyticsController } from "../controller/analyticsController.
 import { getNotificationsController, getUnreadNotificationsController, getCountNotificationsController, readNotificationController, deleteNotificationController } from "../controller/notificationController.js";
 import { addOpinionController, getOpinionsController, getMyOpinionsController, getUserOpinionsController } from "../controller/opinionController.js";
 import { getFollowsDataController } from "../controller/followController.js";
-import { addViewsController, updatePrivacyController, submitReplyController, getPostRepliesController, getUserByUsernameController, checkUsernameController, updateUsernameController, getStreakController } from "../controller/inlineController.js";
+import { addViewsController, updatePrivacyController, submitReplyController, getPostRepliesController, getUserByUsernameController, getUserByIdController, checkUsernameController, updateUsernameController, getStreakController } from "../controller/inlineController.js";
+import { updateProfileThemeController } from "../controller/profileThemeController.js";
+import { getProfileGuestbookController, createGuestbookEntryController, deleteGuestbookEntryController } from "../controller/profileGuestbookController.js";
+import { recordProfileVisitController } from "../controller/profileVisitController.js";
+import { remixProfileThemeController } from "../controller/profileThemeRemixController.js";
 
 const router = express.Router();
 
@@ -42,6 +46,9 @@ router.post('/upload-user-data', authLimiter, requireAuth, upload, uploadUserDat
 router.post('/update-user-data', requireAuth, upload, updateUserDataController);
 
 router.post('/updateFontColor', requireAuth, upload, updateFont);
+
+// ── Profile Builder theme ──
+router.patch('/profile/theme', writeLimiter, requireAuth, updateProfileThemeController);
 
 router.post('/uploadBackground', uploadLimiter, requireAuth, upload, uploadProfileBgController);
 
@@ -142,11 +149,23 @@ router.post('/addOpinionReply/:parent_id/:user_id/:receiver_id', requireAuth, up
 router.get('/getOpinionReply/:parentId', getReplyOpinionsController);
 
 // ── Username endpoints ──
+router.get('/users/id/:userId', getUserByIdController);
 router.get('/user/:username', getUserByUsernameController);
 
 router.get('/check-username/:username', checkUsernameController);
 
 router.post('/update-username', requireAuth, updateUsernameController);
+
+// ── Profile Guestbook ──
+router.get('/users/:username/guestbook', getProfileGuestbookController);
+router.post('/users/:username/guestbook', writeLimiter, requireAuth, createGuestbookEntryController);
+router.delete('/profile/guestbook/:entryId', requireAuth, deleteGuestbookEntryController);
+
+// ── Profile Visits ──
+router.post('/users/:username/visit', optionalAuth, recordProfileVisitController);
+
+// ── Profile Theme Remix ("Use this theme") ──
+router.post('/users/:username/theme/remix', writeLimiter, requireAuth, remixProfileThemeController);
 
 // ── Story routes ──
 router.post('/stories', requireAuth, upload, createStoryController);

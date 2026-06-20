@@ -8,7 +8,7 @@ const PROFILE_MEDIA_BUCKETS = ['background', 'journal-images', 'avatars'];
 const PROFILE_MEDIA_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.bmp', '.avif', '.svg'];
 const PROFILE_MEDIA_LIMIT_DEFAULT = 5;
 const PROFILE_MEDIA_LIMIT_MAX = 20;
-const JOURNAL_USER_SELECT = 'id, name, image_url, badge';
+const JOURNAL_USER_SELECT = 'id, name, username, image_url, badge';
 const JOURNAL_BASE_SELECT = `
     id,
     user_id,
@@ -63,7 +63,7 @@ const JOURNAL_METADATA_WITH_COUNTS_SELECT = `
     comment_count: comments(count),
     bookmark_count: bookmarks(count)
 `;
-const OPINION_USER_SELECT = 'id, name, image_url, badge';
+const OPINION_USER_SELECT = 'id, name, username, image_url, badge';
 const OPINION_BASE_SELECT = `
     id,
     user_id,
@@ -1290,7 +1290,7 @@ export const getBookmarksService = async(userId, before, limit) => {
         comment_count: comments(count),
         bookmark_count: bookmarks(count),
 
-        users(name, image_url, badge),
+        users(name, image_url, badge, username),
 
         like_count: likes(count)
         )

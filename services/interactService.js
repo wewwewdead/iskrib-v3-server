@@ -1,5 +1,7 @@
 import supabase from "./supabase.js";
 import { AppError } from "../utils/AppError.js";
+import { createNotification } from "./notificationService.js";
+import { buildUserProfileTarget } from "../utils/notificationTargets.js";
 
 // Fire-and-forget: re-evaluate hottest post whenever engagement changes
 const checkHottestPost = () => {
@@ -636,16 +638,15 @@ export const addFollowsService = async(followerId, followingId) => {
             throw new AppError(500, 'supabase error while inserting follow data');
         }
 
-        // Create follow notification (skip if self-follow)
+        // Create follow notification (skip if self-follow).
+        // Target = the follower's (actor's) profile.
         if (followerId !== followingId) {
-            await supabase
-                .from('notifications')
-                .insert({
-                    sender_id: followerId,
-                    receiver_id: followingId,
-                    type: 'follow',
-                    read: false
-                });
+            await createNotification({
+                senderId: followerId,
+                receiverId: followingId,
+                type: 'follow',
+                target: buildUserProfileTarget(followerId),
+            });
         }
 
         return {message: 'success'};

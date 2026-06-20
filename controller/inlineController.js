@@ -2,6 +2,7 @@ import supabase from "../services/supabase.js";
 import { asyncHandler } from "../utils/controllerHandler.js";
 import { isValidUsername, RESERVED_USERNAMES } from "../utils/validation.js";
 import { getUserByUsernameService } from "../services/getUserDataService.js";
+import { getUserByIdLite } from "../services/userLookupService.js";
 import { getStreakService } from "../services/streakService.js";
 
 const COMMENT_REPLY_SELECT = `
@@ -178,6 +179,12 @@ export const getPostRepliesController = asyncHandler(async (req, res) => {
 
 export const getUserByUsernameController = asyncHandler(async (req, res) => {
     const data = await getUserByUsernameService(req.params.username);
+    return res.status(200).json(data);
+});
+
+// Resolve a userId to public identity (id, username, name) for canonical redirects.
+export const getUserByIdController = asyncHandler(async (req, res) => {
+    const data = await getUserByIdLite(req.params.userId);
     return res.status(200).json(data);
 });
 
