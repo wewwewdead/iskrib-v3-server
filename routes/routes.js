@@ -28,6 +28,7 @@ import { getProfileGuestbookController, createGuestbookEntryController, deleteGu
 import { recordProfileVisitController } from "../controller/profileVisitController.js";
 import { remixProfileThemeController } from "../controller/profileThemeRemixController.js";
 import { getProfileDiscoverController } from "../controller/profileDiscoverController.js";
+import { getProfilePreviewController } from "../controller/profilePreviewController.js";
 import { getProfileActivitySummaryController } from "../controller/profileActivitySummaryController.js";
 import { deleteAccountController } from "../controller/accountDeletionController.js";
 
@@ -163,6 +164,9 @@ router.post('/update-username', requireAuth, updateUsernameController);
 router.get('/users/:username/guestbook', getProfileGuestbookController);
 router.post('/users/:username/guestbook', writeLimiter, requireAuth, createGuestbookEntryController);
 router.delete('/profile/guestbook/:entryId', requireAuth, deleteGuestbookEntryController);
+
+// ── Profile Content Preview (V3B — layout home real previews) ──
+router.get('/users/:username/profile-preview', getProfilePreviewController);
 
 // ── Profile Visits ──
 router.post('/users/:username/visit', optionalAuth, recordProfileVisitController);
