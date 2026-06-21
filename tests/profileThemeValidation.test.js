@@ -255,6 +255,40 @@ describe("validateProfileTheme", () => {
             expect(result.sections.find((s) => s.id === id)).toBeDefined();
         });
     });
+
+    // Idempotency is the contract that lets ALREADY-SAVED themes keep loading:
+    // a theme that has been through validateProfileTheme once must pass through a
+    // second time unchanged (re-saving / re-fetching never mutates a valid theme).
+    it("is idempotent — re-validating a sanitized theme returns it unchanged", () => {
+        const once = validateProfileTheme(baseValidTheme());
+        const twice = validateProfileTheme(once);
+        expect(twice).toEqual(once);
+    });
+
+    it("is idempotent for a rich explicit layout + content + per-block card theme", () => {
+        const once = validateProfileTheme({
+            ...baseValidTheme(),
+            background: { type: "gradient", angle: 90, from: "#112233", to: "rgba(0,0,0,0.5)", opacity: 0.4 },
+            layout: {
+                mode: "stack",
+                blocks: [
+                    {
+                        type: "writings",
+                        order: 0,
+                        width: "half",
+                        style: "paper",
+                        variant: "list",
+                        title: "My Words",
+                        content: { count: 1, source: "pinned_first", density: "compact", imageShape: "square", showMeta: false, showExcerpt: false },
+                    },
+                    { type: "media", order: 1, card: { style: "glass", radius: "round", border: "soft", shadow: "soft" } },
+                ],
+            },
+            hero: { mode: "stack", order: ["name", "avatar", "stats", "bio"], layout: { name: { align: "center", style: "glass", color: "#ff0000" } } },
+        });
+        const twice = validateProfileTheme(once);
+        expect(twice).toEqual(once);
+    });
 });
 
 describe("validateProfileTheme — background", () => {

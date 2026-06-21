@@ -1,4 +1,5 @@
 import { uploadUserDataService, updateUserDataService, uploadBackgroundService, uploadJournalImageService, uploadJournalContentService, updateJournalService, addReplyOpinionService, updateRepostCaptionService, completeOnboardingService, updateInterestsService, saveDraftService, publishDraftService } from "../services/uploadService.js";
+import { uploadBackgroundGifService } from "../services/backgroundGifService.js";
 
 export const uploadUserDataController = async(req, res) =>{
     const {bio, name, username} = req.body;
@@ -61,6 +62,21 @@ export const uploadProfileBgController = async(req, res) =>{
     } catch (error) {
         console.error(error);
         return res.status(500).json({error: 'error while uploading background image'});
+    }
+}
+
+export const uploadBackgroundGifController = async(req, res) =>{
+    const userId = req.userId;
+    const gifFile = req.files?.gif?.[0];
+    const posterFile = req.files?.poster?.[0];
+
+    try {
+        const result = await uploadBackgroundGifService(userId, gifFile, posterFile);
+        return res.status(200).json(result);
+    } catch (error) {
+        console.error('error uploading background gif', error);
+        const status = error?.status || 500;
+        return res.status(status).json({error: error?.error || 'error uploading background gif'});
     }
 }
 

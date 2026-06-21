@@ -5,7 +5,7 @@ import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { verifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
-import { addReplyOpinionController, completeOnboardingController, updateInterestsController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController, saveDraftController, publishDraftController } from "../controller/uploadController.js";
+import { addReplyOpinionController, completeOnboardingController, updateInterestsController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadBackgroundGifController, uploadUserDataController, saveDraftController, publishDraftController } from "../controller/uploadController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
 import { getBookmarksController, getCommentsController, getDraftsController, getFollowingFeedController, getForYouFeedController, getJournalByIdController, getJournalContentController, getJournalsController, getMonthlyHottestJournalsController, getPinnedJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getUserPinnedIdsController, getViewOpinionController, getVisitedPinnedJournalsController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchFollowingUsersController, searchJournalsController, searchUsersController } from "../controller/getController.js";
@@ -39,6 +39,27 @@ const upload = multer({
     limits: {fileSize: 10 * 1024 * 1024},
 }).single('image');
 
+// Animated GIF backgrounds: separate multer instance using fields (gif + poster)
+// with an 8MB per-file cap. The service re-validates size, mimetype, and magic
+// bytes — this limit is just the first line of defence.
+const uploadBackgroundGif = multer({
+    storage: multer.memoryStorage(),
+    limits: {fileSize: 8 * 1024 * 1024},
+}).fields([
+    {name: 'gif', maxCount: 1},
+    {name: 'poster', maxCount: 1},
+]);
+
+const uploadBackgroundGifMiddleware = (req, res, next) => {
+    uploadBackgroundGif(req, res, (err) => {
+        if (err) {
+            const tooLarge = err.code === 'LIMIT_FILE_SIZE';
+            return res.status(400).json({error: tooLarge ? 'file too large (max 8MB)' : 'gif upload error'});
+        }
+        return next();
+    });
+};
+
 router.post('/verify-turnstile', authLimiter, verifyTurnstileController);
 
 router.get('/getUserData', getUserDataController);
@@ -55,6 +76,8 @@ router.post('/updateFontColor', requireAuth, upload, updateFont);
 router.patch('/profile/theme', writeLimiter, requireAuth, updateProfileThemeController);
 
 router.post('/uploadBackground', uploadLimiter, requireAuth, upload, uploadProfileBgController);
+
+router.post('/uploadBackgroundGif', uploadLimiter, requireAuth, uploadBackgroundGifMiddleware, uploadBackgroundGifController);
 
 router.post('/save-journal-image', uploadLimiter, requireAuth, upload, uploadJournalImageController);
 
