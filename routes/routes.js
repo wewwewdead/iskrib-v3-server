@@ -5,7 +5,8 @@ import { requireAuth, optionalAuth } from "../middleware/auth.js";
 import { verifyTurnstileController } from "../controller/turnstileController.js";
 import { getUserDataController } from "../controller/getUserDataController.js";
 import { checkUserController } from "../controller/checkUserController.js";
-import { addReplyOpinionController, completeOnboardingController, updateInterestsController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadBackgroundGifController, uploadUserDataController, saveDraftController, publishDraftController } from "../controller/uploadController.js";
+import { addReplyOpinionController, completeOnboardingController, updateInterestsController, updateJournalController, updateRepostCaptionController, updateUserDataController, uploadJournalContentController, uploadJournalImageController, uploadProfileBgController, uploadUserDataController, saveDraftController, publishDraftController } from "../controller/uploadController.js";
+import { uploadAnimatedBackgroundController } from "../controller/profileBackgroundController.js";
 import { updateFont } from "../controller/updateFontColorController.js";
 import { deleteJournalContent, deleteJournalImageController, deleteProfileMediaImageController } from "../controller/deleteController.js";
 import { getBookmarksController, getCommentsController, getDraftsController, getFollowingFeedController, getForYouFeedController, getJournalByIdController, getJournalContentController, getJournalsController, getMonthlyHottestJournalsController, getPinnedJournalsController, getProfileMediaController, getReplyOpinionsController, getUserJournalsController, getUserPinnedIdsController, getViewOpinionController, getVisitedPinnedJournalsController, getVisitedProfileMediaController, getVisitedUserJournalsController, searchFollowingUsersController, searchJournalsController, searchUsersController } from "../controller/getController.js";
@@ -77,7 +78,10 @@ router.patch('/profile/theme', writeLimiter, requireAuth, updateProfileThemeCont
 
 router.post('/uploadBackground', uploadLimiter, requireAuth, upload, uploadProfileBgController);
 
-router.post('/uploadBackgroundGif', uploadLimiter, requireAuth, uploadBackgroundGifMiddleware, uploadBackgroundGifController);
+// Animated GIF backgrounds are converted server-side into optimized video assets
+// (poster + MP4/H.264 + optional WebM); the controller returns the manifest the
+// client persists in users.background and renders with a dedicated <video> layer.
+router.post('/uploadBackgroundGif', uploadLimiter, requireAuth, uploadBackgroundGifMiddleware, uploadAnimatedBackgroundController);
 
 router.post('/save-journal-image', uploadLimiter, requireAuth, upload, uploadJournalImageController);
 

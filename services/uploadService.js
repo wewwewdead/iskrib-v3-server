@@ -5,6 +5,7 @@ import ParseContent from "../utils/parseData.js";
 import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
 import { extractMentionUserIds } from "../utils/extractMentions.js";
 import { updateUserInterestsEmbedding } from "./interestEmbeddingService.js";
+import { deleteOldBackgroundAssets } from "./profileBackgroundService.js";
 
 const POST_TYPE_TEXT = 'text';
 
@@ -213,6 +214,24 @@ export const updateUserDataService = async(name, bio, profileBg, dominantColors,
             throw { status: 400, error: 'invalid profileBg JSON' };
         }
     }
+
+    // When the background is changing, read the current one first so we can
+    // best-effort clean up the previous generated assets (poster/mp4/webm/gif)
+    // after the save. Failure here never blocks the profile update.
+    let previousBackground;
+    if (parsedProfileBg !== undefined) {
+        try {
+            const { data: existing } = await supabase
+                .from('users')
+                .select('background')
+                .eq('id', userId)
+                .maybeSingle();
+            previousBackground = existing?.background;
+        } catch {
+            previousBackground = undefined;
+        }
+    }
+
     const payload = {
         name: name,
         bio: bio,
@@ -245,6 +264,13 @@ export const updateUserDataService = async(name, bio, profileBg, dominantColors,
     if(errorUploadData){
         console.error('supabase error:', errorUploadData.message);
         throw{status: 500, error: 'supabase error while uploading data'}
+    }
+
+    // Best-effort cleanup of the previous background's generated assets that the
+    // new background no longer references. Runs after the save succeeds and never
+    // throws, so a stale asset can't undo a committed profile update.
+    if (parsedProfileBg !== undefined && previousBackground) {
+        await deleteOldBackgroundAssets(userId, previousBackground, parsedProfileBg);
     }
 
     const data = uploadData;
