@@ -3,7 +3,6 @@ import {
     validateProfileTheme,
     isValidColor,
     DEFAULT_PROFILE_THEME,
-    MAX_STICKERS,
     ALLOWED_SECTION_IDS,
     ALLOWED_LAYOUT_BLOCK_TYPES,
     DEFAULT_LAYOUT_BLOCK_TYPES,
@@ -11,6 +10,7 @@ import {
     MAX_LAYOUT_TITLE_LENGTH,
     ALLOWED_BLOCK_CONTENT_BY_TYPE,
     DEFAULT_BLOCK_CONTENT,
+    DEFAULT_BLOCK_DESIGN,
 } from "../utils/profileThemeValidation.js";
 
 const baseValidTheme = () => ({
@@ -62,7 +62,8 @@ describe("validateProfileTheme", () => {
         // hero is forced visible, stats stays hidden
         const stats = result.sections.find((s) => s.id === "stats");
         expect(stats.visible).toBe(false);
-        expect(result.stickers).toHaveLength(1);
+        // Stickers were deprecated in V5 — any provided ones are dropped.
+        expect(result.stickers).toHaveLength(0);
     });
 
     it("rejects an invalid color value", () => {
@@ -80,24 +81,26 @@ describe("validateProfileTheme", () => {
         result.sections.forEach((s) => expect(ALLOWED_SECTION_IDS).toContain(s.id));
     });
 
-    it("truncates stickers beyond the max", () => {
+    it("deprecates stickers — drops ALL provided sticker data (V5)", () => {
         const theme = baseValidTheme();
-        theme.stickers = Array.from({ length: MAX_STICKERS + 10 }, () => ({
-            id: "star-01",
-            x: 10,
-            y: 10,
-            rotation: 0,
-            scale: 1,
-        }));
+        theme.stickers = [
+            { id: "star-01", x: 10, y: 10, rotation: 0, scale: 1 },
+            { id: "pen-01", x: 20, y: 20, rotation: 0, scale: 1, color: "#ff0000" },
+            { id: "not-a-real-sticker", x: 1, y: 1 },
+        ];
         const result = validateProfileTheme(theme);
-        expect(result.stickers).toHaveLength(MAX_STICKERS);
+        // The key stays (stable shape) but is always empty — old themes don't
+        // crash, new saves add none, and theme remix copies none.
+        expect(result.stickers).toEqual([]);
     });
 
-    it("strips unknown sticker ids", () => {
-        const theme = baseValidTheme();
-        theme.stickers = [{ id: "not-a-real-sticker", x: 1, y: 1, rotation: 0, scale: 1 }];
-        const result = validateProfileTheme(theme);
-        expect(result.stickers).toHaveLength(0);
+    it("tolerates a malformed stickers field without throwing", () => {
+        for (const bad of [null, undefined, "stickers", 42, { not: "an array" }]) {
+            const theme = baseValidTheme();
+            theme.stickers = bad;
+            expect(() => validateProfileTheme(theme)).not.toThrow();
+            expect(validateProfileTheme(theme).stickers).toEqual([]);
+        }
     });
 
     it("falls back to default font for an unknown font", () => {
@@ -114,41 +117,6 @@ describe("validateProfileTheme", () => {
         const result = validateProfileTheme(theme);
         expect(result.cards.style).toBe(DEFAULT_PROFILE_THEME.cards.style);
         expect(result.cards.radius).toBe(DEFAULT_PROFILE_THEME.cards.radius);
-    });
-
-    it("clamps sticker position and scale into safe ranges", () => {
-        const theme = baseValidTheme();
-        theme.stickers = [{ id: "heart-01", x: 9999, y: -50, rotation: 9999, scale: 100 }];
-        const result = validateProfileTheme(theme);
-        expect(result.stickers[0].x).toBe(100);
-        expect(result.stickers[0].y).toBe(0);
-        expect(result.stickers[0].rotation).toBe(180);
-        expect(result.stickers[0].scale).toBe(3);
-    });
-
-    it("accepts the expanded sticker set (writing/celestial/etc. ids)", () => {
-        const theme = baseValidTheme();
-        theme.stickers = [
-            { id: "pen-01", x: 10, y: 10, rotation: 0, scale: 1 },
-            { id: "crown-01", x: 20, y: 20, rotation: 0, scale: 1 },
-            { id: "comet-01", x: 30, y: 30, rotation: 0, scale: 1 },
-        ];
-        const result = validateProfileTheme(theme);
-        expect(result.stickers.map((s) => s.id)).toEqual(["pen-01", "crown-01", "comet-01"]);
-    });
-
-    it("keeps a valid sticker color and drops invalid ones", () => {
-        const theme = baseValidTheme();
-        theme.stickers = [
-            { id: "star-01", x: 10, y: 10, rotation: 0, scale: 1, color: "#ff0000" },
-            { id: "heart-01", x: 20, y: 20, rotation: 0, scale: 1, color: "javascript:alert(1)" },
-            { id: "moon-01", x: 30, y: 30, rotation: 0, scale: 1 },
-        ];
-        const result = validateProfileTheme(theme);
-        const byId = Object.fromEntries(result.stickers.map((s) => [s.id, s]));
-        expect(byId["star-01"].color).toBe("#ff0000");
-        expect(byId["heart-01"].color).toBeUndefined();
-        expect(byId["moon-01"].color).toBeUndefined();
     });
 
     it("forces the hero to stack mode and drops legacy free-canvas x/y/w + height", () => {
@@ -190,6 +158,31 @@ describe("validateProfileTheme", () => {
         expect(result.hero.layout.bio.align).toBe("left"); // bad → default
         expect(result.hero.layout.bio.style).toBe("none");
         expect(result.hero.layout.avatar.align).toBe("left"); // untouched element default
+    });
+
+    it("keeps a per-hero-element `design` with hero defaults + strips invalid keys (V5.2)", () => {
+        const result = validateProfileTheme({
+            ...baseValidTheme(),
+            hero: {
+                layout: {
+                    name: { design: { surface: "paper", tilt: -3, textColor: "#ff0000", fillType: "gradient", gradFrom: "#000000", gradTo: "#ffffff", evil: "<x>" } },
+                    bio: { design: {} },
+                    avatar: {},
+                },
+            },
+        });
+        const name = result.hero.layout.name.design;
+        expect(name.surface).toBe("paper");
+        expect(name.tilt).toBe(-3);
+        expect(name.textColor).toBe("#ff0000");
+        expect(name.fillType).toBe("gradient");
+        expect(name.evil).toBeUndefined();
+        // hero default design = minimal surface, no shadow/border (no card chrome)
+        expect(result.hero.layout.bio.design.surface).toBe("minimal");
+        expect(result.hero.layout.bio.design.shadow).toBe("none");
+        expect(result.hero.layout.bio.design.border).toBe("none");
+        // an element with no design carries none
+        expect(result.hero.layout.avatar.design).toBeUndefined();
     });
 
     it("keeps a valid per-element text color and drops invalid ones", () => {
@@ -518,10 +511,254 @@ describe("validateProfileTheme — layout (V3A)", () => {
         expect(result.layout.rawCss).toBeUndefined();
         const writings = result.layout.blocks.find((b) => b.type === "writings");
         expect(Object.keys(writings).sort()).toEqual(
-            ["content", "id", "order", "style", "title", "type", "variant", "visible", "width"].sort()
+            ["content", "design", "id", "order", "style", "title", "type", "variant", "visible", "width"].sort()
         );
         expect(writings.className).toBeUndefined();
         expect(writings.onclick).toBeUndefined();
+    });
+});
+
+describe("validateProfileTheme — container design (V5)", () => {
+    const layoutWith = (blocks) => ({ ...baseValidTheme(), layout: { mode: "stack", blocks } });
+
+    it("attaches a complete default design to legacy blocks (no design provided)", () => {
+        const result = validateProfileTheme(baseValidTheme()); // legacy, no layout/design
+        result.layout.blocks.forEach((b) => {
+            expect(b.design).toBeDefined();
+            expect(Object.keys(b.design).sort()).toEqual(Object.keys(DEFAULT_BLOCK_DESIGN).sort());
+        });
+        const writings = result.layout.blocks.find((b) => b.type === "writings");
+        // inherit-style legacy block → the safe default design
+        expect(writings.design).toEqual(DEFAULT_BLOCK_DESIGN);
+    });
+
+    it("accepts a full valid design and keeps every field", () => {
+        const design = {
+            surface: "paper",
+            tone: "forest",
+            radius: "sharp",
+            shadow: "lifted",
+            border: "accent",
+            padding: "spacious",
+            header: "banner",
+            titleAlign: "center",
+            accent: "rose",
+        };
+        const result = validateProfileTheme(layoutWith([{ type: "writings", order: 0, design }]));
+        expect(result.layout.blocks.find((b) => b.type === "writings").design).toEqual(design);
+    });
+
+    it("strips unknown design keys and falls back on invalid enum values", () => {
+        const result = validateProfileTheme(
+            layoutWith([
+                {
+                    type: "media",
+                    order: 0,
+                    design: {
+                        surface: "hologram",
+                        tone: "neon",
+                        radius: "spiky",
+                        shadow: "extreme",
+                        border: "thicc",
+                        padding: "cramped",
+                        header: "marquee",
+                        titleAlign: "justify",
+                        accent: "rainbow",
+                        evil: "<script>",
+                        rawCss: "body{}",
+                    },
+                },
+            ])
+        );
+        const media = result.layout.blocks.find((b) => b.type === "media");
+        // unknown keys gone; every field is the safe default
+        expect(media.design).toEqual(DEFAULT_BLOCK_DESIGN);
+        expect(media.design.evil).toBeUndefined();
+        expect(media.design.rawCss).toBeUndefined();
+    });
+
+    it("derives surface/radius/shadow/border from a legacy per-block card", () => {
+        const result = validateProfileTheme(
+            layoutWith([
+                {
+                    type: "writings",
+                    order: 0,
+                    card: { style: "paper", radius: "sharp", border: "bold", shadow: "strong" },
+                    // no design → derive from card
+                },
+            ])
+        );
+        const d = result.layout.blocks.find((b) => b.type === "writings").design;
+        expect(d.surface).toBe("paper");
+        expect(d.radius).toBe("sharp");
+        expect(d.shadow).toBe("lifted"); // strong → lifted
+        expect(d.border).toBe("accent"); // bold → accent
+    });
+
+    it("derives surface from a legacy fixed style when no card is present", () => {
+        const result = validateProfileTheme(
+            layoutWith([{ type: "opinions", order: 0, style: "framed" }])
+        );
+        expect(result.layout.blocks.find((b) => b.type === "opinions").design.surface).toBe("framed");
+    });
+
+    it("an explicit design overrides any legacy style/card derivation", () => {
+        const result = validateProfileTheme(
+            layoutWith([
+                {
+                    type: "writings",
+                    order: 0,
+                    style: "framed",
+                    card: { style: "paper", radius: "sharp", border: "bold", shadow: "strong" },
+                    design: { surface: "minimal", border: "none" },
+                },
+            ])
+        );
+        const d = result.layout.blocks.find((b) => b.type === "writings").design;
+        expect(d.surface).toBe("minimal");
+        expect(d.border).toBe("none");
+    });
+
+    it("is idempotent for a theme carrying explicit design", () => {
+        const once = validateProfileTheme(
+            layoutWith([{ type: "writings", order: 0, design: { surface: "solid", tone: "ocean", header: "tab" } }])
+        );
+        const twice = validateProfileTheme(once);
+        expect(twice).toEqual(once);
+    });
+
+    it("keeps a valid per-container text/background color + font", () => {
+        const result = validateProfileTheme(
+            layoutWith([
+                {
+                    type: "writings",
+                    order: 0,
+                    design: { textColor: "#ff0000", bgColor: "rgba(0,0,0,0.4)", font: "spaceGrotesk" },
+                },
+            ])
+        );
+        const d = result.layout.blocks.find((b) => b.type === "writings").design;
+        expect(d.textColor).toBe("#ff0000");
+        expect(d.bgColor).toBe("rgba(0,0,0,0.4)");
+        expect(d.font).toBe("spaceGrotesk");
+    });
+
+    it("drops an invalid color / font and omits the key entirely", () => {
+        const result = validateProfileTheme(
+            layoutWith([
+                {
+                    type: "media",
+                    order: 0,
+                    design: { textColor: "url(javascript:alert(1))", bgColor: "red", font: "comic-sans-evil" },
+                },
+            ])
+        );
+        const d = result.layout.blocks.find((b) => b.type === "media").design;
+        expect(d.textColor).toBeUndefined();
+        expect(d.bgColor).toBeUndefined();
+        expect(d.font).toBeUndefined();
+        // a clean default design has none of these optional keys
+        expect(Object.keys(d).sort()).toEqual(Object.keys(DEFAULT_BLOCK_DESIGN).sort());
+    });
+
+    it("is idempotent for a design carrying text/bg color + font", () => {
+        const once = validateProfileTheme(
+            layoutWith([{ type: "writings", order: 0, design: { textColor: "#abcdef", bgColor: "#112233", font: "fraunces" } }])
+        );
+        const twice = validateProfileTheme(once);
+        expect(twice).toEqual(once);
+    });
+
+    it("keeps valid Design Studio extras (fill / gradient / pattern / sliders / title / effects)", () => {
+        const result = validateProfileTheme(
+            layoutWith([
+                {
+                    type: "writings",
+                    order: 0,
+                    design: {
+                        fillType: "gradient",
+                        gradFrom: "#7c3aed",
+                        gradTo: "#2563eb",
+                        gradAngle: 90,
+                        fillOpacity: 0.8,
+                        pattern: "dots",
+                        patternColor: "#000000",
+                        patternScale: "l",
+                        patternOpacity: 0.3,
+                        blur: 22,
+                        radiusPx: 30,
+                        borderWidth: 3,
+                        borderStyle: "dashed",
+                        borderColor: "#ff0000",
+                        shadowStrength: 0.7,
+                        glow: "#7c3aed",
+                        paddingPx: 24,
+                        titleSize: "xl",
+                        titleWeight: "black",
+                        titleSpacing: "wide",
+                        titleCase: "upper",
+                        tilt: -3,
+                        hover: "lift",
+                        opacity: 0.9,
+                    },
+                },
+            ])
+        );
+        const d = result.layout.blocks.find((b) => b.type === "writings").design;
+        expect(d.fillType).toBe("gradient");
+        expect(d.gradAngle).toBe(90);
+        expect(d.borderStyle).toBe("dashed");
+        expect(d.titleSize).toBe("xl");
+        expect(d.tilt).toBe(-3);
+        expect(d.hover).toBe("lift");
+        expect(d.glow).toBe("#7c3aed");
+    });
+
+    it("clamps out-of-range numbers and drops invalid enums/colors in extras", () => {
+        const result = validateProfileTheme(
+            layoutWith([
+                {
+                    type: "media",
+                    order: 0,
+                    design: {
+                        gradAngle: 9999,
+                        tilt: -50,
+                        radiusPx: 999,
+                        opacity: 5,
+                        blur: -10,
+                        fillType: "evil",
+                        pattern: "spiral",
+                        titleSize: "huge",
+                        borderStyle: "wavy",
+                        glow: "red",
+                        patternScale: "xl",
+                    },
+                },
+            ])
+        );
+        const d = result.layout.blocks.find((b) => b.type === "media").design;
+        expect(d.gradAngle).toBe(360);
+        expect(d.tilt).toBe(-6);
+        expect(d.radiusPx).toBe(40);
+        expect(d.opacity).toBe(1);
+        expect(d.blur).toBe(0);
+        expect(d.fillType).toBeUndefined();
+        expect(d.pattern).toBeUndefined();
+        expect(d.titleSize).toBeUndefined();
+        expect(d.borderStyle).toBeUndefined();
+        expect(d.glow).toBeUndefined();
+        expect(d.patternScale).toBeUndefined();
+    });
+
+    it("omits fillType when 'surface' (default) and is idempotent for extras", () => {
+        const once = validateProfileTheme(
+            layoutWith([{ type: "writings", order: 0, design: { fillType: "surface", tilt: 4, blur: 10 } }])
+        );
+        const d = once.layout.blocks.find((b) => b.type === "writings").design;
+        expect(d.fillType).toBeUndefined();
+        expect(d.tilt).toBe(4);
+        const twice = validateProfileTheme(once);
+        expect(twice).toEqual(once);
     });
 });
 

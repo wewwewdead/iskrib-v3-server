@@ -8,9 +8,10 @@ import { buildUserProfileTarget } from "../utils/notificationTargets.js";
 /**
  * "Use this theme" — copy a source user's profile_theme onto the current user.
  *
- * Only the theme config (colors / typography / cards / sections / stickers) is
+ * Only the theme config (colors / typography / cards / sections / layout) is
  * copied — never avatar, name, bio, writings, or the background image (those
- * live in other columns and are left untouched).
+ * live in other columns and are left untouched). Re-validating the source theme
+ * also drops any deprecated stickers, so a remix never carries them over.
  */
 export const remixProfileThemeService = async (sourceUsername, remixerId) => {
     if (!remixerId) {

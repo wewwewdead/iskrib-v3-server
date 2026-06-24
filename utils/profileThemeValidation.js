@@ -36,7 +36,20 @@ export const ALLOWED_PRESET_IDS = [
     "lavender",
 ];
 
-export const ALLOWED_FONTS = ["outfit", "lora", "playfair", "comfortaa", "lexend", "patrick"];
+export const ALLOWED_FONTS = [
+    "outfit",
+    "lexend",
+    "spaceGrotesk",
+    "lora",
+    "spectral",
+    "garamond",
+    "playfair",
+    "dmSerif",
+    "fraunces",
+    "comfortaa",
+    "caveat",
+    "patrick",
+];
 
 export const ALLOWED_SCALES = ["compact", "normal", "spacious"];
 
@@ -258,6 +271,64 @@ export const DEFAULT_LAYOUT_WIDTH_BY_TYPE = {
     joined_date: "compact",
 };
 
+// ── Container design controls (Profile Builder V5 — Container Design Studio) ──
+// Each layout block carries a fully-whitelisted `design` object that controls its
+// container chrome: surface, tone tint, corner radius, shadow, border, padding,
+// header treatment, title alignment and accent. NO raw CSS, NO custom class names,
+// NO arbitrary colors — every value is a hardcoded enum mapped to a fixed CSS
+// class / data-attribute on the client. The object is rebuilt from scratch on save.
+export const ALLOWED_DESIGN_SURFACES = ["paper", "glass", "solid", "minimal", "framed"];
+export const ALLOWED_DESIGN_TONES = ["default", "warm", "cool", "ink", "rose", "forest", "ocean"];
+export const ALLOWED_DESIGN_RADII = ["soft", "round", "sharp"];
+export const ALLOWED_DESIGN_SHADOWS = ["none", "soft", "lifted"];
+export const ALLOWED_DESIGN_BORDERS = ["none", "hairline", "accent"];
+export const ALLOWED_DESIGN_PADDINGS = ["compact", "comfortable", "spacious"];
+export const ALLOWED_DESIGN_HEADERS = ["plain", "label", "banner", "tab"];
+export const ALLOWED_DESIGN_TITLE_ALIGNS = ["left", "center"];
+export const ALLOWED_DESIGN_ACCENTS = ["theme", "amber", "blue", "green", "rose"];
+
+// Safe defaults — these reproduce the pre-V5 default container look (glass card,
+// round corners, soft shadow, hairline border, comfortable padding, simple label
+// header, left-aligned title, theme accent). Old blocks get these defaults.
+export const DEFAULT_BLOCK_DESIGN = {
+    surface: "glass",
+    tone: "default",
+    radius: "round",
+    shadow: "soft",
+    border: "hairline",
+    padding: "comfortable",
+    header: "label",
+    titleAlign: "left",
+    accent: "theme",
+};
+
+// ── V5.1 Design Studio — deeper per-container controls (all OPTIONAL on save) ──
+// Mirrors client/.../builder/profileThemeConstants.js. Every value is a
+// whitelisted enum, a validated color, or a clamped number — never raw CSS.
+export const ALLOWED_FILL_TYPES = ["surface", "solid", "gradient", "pattern"];
+export const ALLOWED_PATTERNS = ["dots", "grid", "lines", "diagonal", "crosshatch", "paper"];
+export const ALLOWED_PATTERN_SCALES = ["s", "m", "l"];
+export const ALLOWED_BORDER_STYLES = ["solid", "dashed", "dotted", "double"];
+export const ALLOWED_TITLE_SIZES = ["sm", "md", "lg", "xl"];
+export const ALLOWED_TITLE_WEIGHTS = ["normal", "medium", "bold", "black"];
+export const ALLOWED_TITLE_SPACINGS = ["tight", "normal", "wide"];
+export const ALLOWED_TITLE_CASES = ["none", "upper"];
+export const ALLOWED_HOVER_FX = ["none", "lift", "glow"];
+
+// Numeric ranges {min,max} for clamping the optional numeric design fields.
+export const DESIGN_RANGES = {
+    gradAngle: { min: 0, max: 360 },
+    fillOpacity: { min: 0.1, max: 1 },
+    blur: { min: 0, max: 30 },
+    patternOpacity: { min: 0.05, max: 1 },
+    radiusPx: { min: 0, max: 40 },
+    borderWidth: { min: 0, max: 8 },
+    paddingPx: { min: 4, max: 48 },
+    shadowStrength: { min: 0, max: 1 },
+    tilt: { min: -6, max: 6 },
+    opacity: { min: 0.3, max: 1 },
+};
+
 const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 const RGB_COLOR_RE =
     /^rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*(?:0|1|0?\.\d+)\s*)?\)$/;
@@ -309,6 +380,7 @@ export const DEFAULT_PROFILE_THEME = {
             variant: ALLOWED_LAYOUT_VARIANTS_BY_TYPE[type][0],
             title: DEFAULT_LAYOUT_TITLE_BY_TYPE[type],
             ...(DEFAULT_BLOCK_CONTENT[type] ? { content: { ...DEFAULT_BLOCK_CONTENT[type] } } : {}),
+            design: { ...DEFAULT_BLOCK_DESIGN },
         })),
     },
     hero: {
@@ -458,29 +530,23 @@ const sanitizeHero = (raw) => {
             ...(Number.isFinite(Number(el.scale)) && Number(el.scale) >= 0.5 && Number(el.scale) <= 2.5
                 ? { scale: Number(el.scale) }
                 : {}),
+            // V5.2 — a hero element can carry the same container `design` object so
+            // it's edited with the container tools. Only stored when present; surface
+            // defaults to "minimal" (no card) for hero via the "minimal" style hint.
+            ...(el.design && typeof el.design === "object" && !Array.isArray(el.design)
+                ? { design: sanitizeHeroElementDesign(el.design) }
+                : {}),
         };
     }
     return { mode: "stack", order, layout };
 };
 
-const sanitizeStickers = (raw) => {
-    if (!Array.isArray(raw)) return [];
-    const out = [];
-    for (const sticker of raw) {
-        if (out.length >= MAX_STICKERS) break; // truncate beyond the cap
-        if (!sticker || typeof sticker !== "object") continue;
-        if (!ALLOWED_STICKER_IDS.includes(sticker.id)) continue; // strip unknown ids
-        out.push({
-            id: sticker.id,
-            x: clampNumber(sticker.x, 0, 100, 50),
-            y: clampNumber(sticker.y, 0, 100, 50),
-            rotation: clampNumber(sticker.rotation, -180, 180, 0),
-            scale: clampNumber(sticker.scale, 0.3, 3, 1),
-            ...(isValidColor(sticker.color) ? { color: sticker.color.trim() } : {}),
-        });
-    }
-    return out;
-};
+// Stickers were deprecated as a customization surface in Profile Builder V5.
+// Validation stays TOLERANT of old payloads (no throw), but no sticker data is
+// ever persisted again: any incoming `stickers` is dropped to an empty array, so
+// old themes don't crash, new saves add none, and theme remix copies none.
+// (MAX_STICKERS / ALLOWED_STICKER_IDS are kept exported above for back-compat.)
+const sanitizeStickers = () => [];
 
 // Is a given section id visible in a (sanitized) sections list? Used to seed a
 // freshly-derived layout block's visibility from the legacy `sections` config.
@@ -511,6 +577,162 @@ const withBlockContent = (block, rawContent) => {
     return content ? { ...block, content } : block;
 };
 
+// Map a legacy per-block card / style onto the V5 design surface/radius/shadow/
+// border, so old (pre-V5) themes keep their look when they gain a design object.
+const LEGACY_SHADOW_TO_DESIGN = { none: "none", soft: "soft", strong: "lifted" };
+const LEGACY_BORDER_TO_DESIGN = { none: "none", soft: "hairline", bold: "accent" };
+
+const deriveDesignFromLegacy = (block) => {
+    const card = block && typeof block.card === "object" ? block.card : null;
+    const style = block && block.style;
+    let surface = DEFAULT_BLOCK_DESIGN.surface;
+    if (card && ALLOWED_DESIGN_SURFACES.includes(card.style)) surface = card.style;
+    else if (typeof style === "string" && style !== "inherit" && ALLOWED_DESIGN_SURFACES.includes(style)) {
+        surface = style;
+    }
+    return {
+        surface,
+        radius: card && ALLOWED_DESIGN_RADII.includes(card.radius) ? card.radius : DEFAULT_BLOCK_DESIGN.radius,
+        shadow: (card && LEGACY_SHADOW_TO_DESIGN[card.shadow]) || DEFAULT_BLOCK_DESIGN.shadow,
+        border: (card && LEGACY_BORDER_TO_DESIGN[card.border]) || DEFAULT_BLOCK_DESIGN.border,
+    };
+};
+
+/**
+ * Sanitize a block's `design` object (Profile Builder V5). The output is rebuilt
+ * from scratch: every field is a whitelisted enum, unknown keys are dropped, and
+ * NO raw CSS / class name / arbitrary color can pass through. When `design` is
+ * absent (legacy themes), surface/radius/shadow/border are derived from the old
+ * `style`/`card` so the container keeps its look; the rest get safe defaults.
+ * Always returns a complete design object (never throws).
+ */
+// Optional-field helpers: return undefined (→ key omitted) unless the value is
+// valid, so a default design stays minimal and the payload only grows for blocks
+// the user actually customized.
+const enumOpt = (raw, allowed) => (typeof raw === "string" && allowed.includes(raw) ? raw : undefined);
+const colorOpt = (raw) => (isValidColor(raw) ? raw.trim() : undefined);
+const numOpt = (raw, range) => {
+    if (raw === undefined || raw === null || raw === "") return undefined;
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return undefined;
+    return Math.min(range.max, Math.max(range.min, n));
+};
+
+// Build the optional V5.1 Design Studio overrides (fill / frame / title / effects).
+// Each key is included ONLY when its value is valid; everything is whitelisted,
+// validated (colors) or clamped (numbers) — no raw CSS can survive.
+const sanitizeDesignExtras = (src) => {
+    if (!src) return {};
+    const out = {};
+    const setNum = (k) => {
+        const v = numOpt(src[k], DESIGN_RANGES[k]);
+        if (v !== undefined) out[k] = v;
+    };
+    const setEnum = (k, allowed) => {
+        const v = enumOpt(src[k], allowed);
+        if (v !== undefined) out[k] = v;
+    };
+    const setColor = (k) => {
+        const v = colorOpt(src[k]);
+        if (v !== undefined) out[k] = v;
+    };
+
+    // Fill: type defaults to "surface" (omitted); gradient/pattern carry their parts.
+    const fillType = enumOpt(src.fillType, ALLOWED_FILL_TYPES);
+    if (fillType && fillType !== "surface") out.fillType = fillType;
+    setColor("gradFrom");
+    setColor("gradTo");
+    setNum("gradAngle");
+    setEnum("pattern", ALLOWED_PATTERNS);
+    setColor("patternColor");
+    setEnum("patternScale", ALLOWED_PATTERN_SCALES);
+    setNum("patternOpacity");
+    setNum("fillOpacity");
+    setNum("blur");
+
+    // Frame: numeric overrides + border style/color + colored glow.
+    setNum("radiusPx");
+    setNum("borderWidth");
+    setEnum("borderStyle", ALLOWED_BORDER_STYLES);
+    setColor("borderColor");
+    setNum("shadowStrength");
+    setColor("glow");
+    setNum("paddingPx");
+
+    // Title typography.
+    setEnum("titleSize", ALLOWED_TITLE_SIZES);
+    setEnum("titleWeight", ALLOWED_TITLE_WEIGHTS);
+    setEnum("titleSpacing", ALLOWED_TITLE_SPACINGS);
+    setEnum("titleCase", ALLOWED_TITLE_CASES);
+
+    // Effects.
+    setNum("tilt");
+    setEnum("hover", ALLOWED_HOVER_FX);
+    setNum("opacity");
+
+    return out;
+};
+
+const sanitizeBlockDesign = (raw, block) => {
+    const src = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
+    const legacy = deriveDesignFromLegacy(block);
+    return {
+        surface: pickEnum(src && src.surface, ALLOWED_DESIGN_SURFACES, legacy.surface),
+        tone: pickEnum(src && src.tone, ALLOWED_DESIGN_TONES, DEFAULT_BLOCK_DESIGN.tone),
+        radius: pickEnum(src && src.radius, ALLOWED_DESIGN_RADII, legacy.radius),
+        shadow: pickEnum(src && src.shadow, ALLOWED_DESIGN_SHADOWS, legacy.shadow),
+        border: pickEnum(src && src.border, ALLOWED_DESIGN_BORDERS, legacy.border),
+        padding: pickEnum(src && src.padding, ALLOWED_DESIGN_PADDINGS, DEFAULT_BLOCK_DESIGN.padding),
+        header: pickEnum(src && src.header, ALLOWED_DESIGN_HEADERS, DEFAULT_BLOCK_DESIGN.header),
+        titleAlign: pickEnum(src && src.titleAlign, ALLOWED_DESIGN_TITLE_ALIGNS, DEFAULT_BLOCK_DESIGN.titleAlign),
+        accent: pickEnum(src && src.accent, ALLOWED_DESIGN_ACCENTS, DEFAULT_BLOCK_DESIGN.accent),
+        // Optional per-container overrides (only stored when set): a custom text
+        // color, background fill and font. Colors are validated hex/rgba (never raw
+        // CSS); font is a whitelisted family key. Absent = inherit the page.
+        ...(src && isValidColor(src.textColor) ? { textColor: src.textColor.trim() } : {}),
+        ...(src && isValidColor(src.bgColor) ? { bgColor: src.bgColor.trim() } : {}),
+        ...(src && typeof src.font === "string" && ALLOWED_FONTS.includes(src.font) ? { font: src.font } : {}),
+        // V5.1 Design Studio overrides (fill / frame / title / effects).
+        ...sanitizeDesignExtras(src),
+    };
+};
+
+// Attach a sanitized `design` object to every block (always present in V5).
+const withBlockDesign = (block, rawDesign) => ({ ...block, design: sanitizeBlockDesign(rawDesign, block) });
+
+// Hero elements default to NO card chrome (minimal surface, no shadow/border) — a
+// bare avatar/name/bio stays clean. Same shape + tools as a container design.
+const HERO_DEFAULT_DESIGN = {
+    surface: "minimal",
+    tone: "default",
+    radius: "soft",
+    shadow: "none",
+    border: "none",
+    padding: "comfortable",
+    header: "label",
+    titleAlign: "left",
+    accent: "theme",
+};
+
+const sanitizeHeroElementDesign = (raw) => {
+    const src = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : null;
+    return {
+        surface: pickEnum(src && src.surface, ALLOWED_DESIGN_SURFACES, HERO_DEFAULT_DESIGN.surface),
+        tone: pickEnum(src && src.tone, ALLOWED_DESIGN_TONES, HERO_DEFAULT_DESIGN.tone),
+        radius: pickEnum(src && src.radius, ALLOWED_DESIGN_RADII, HERO_DEFAULT_DESIGN.radius),
+        shadow: pickEnum(src && src.shadow, ALLOWED_DESIGN_SHADOWS, HERO_DEFAULT_DESIGN.shadow),
+        border: pickEnum(src && src.border, ALLOWED_DESIGN_BORDERS, HERO_DEFAULT_DESIGN.border),
+        padding: pickEnum(src && src.padding, ALLOWED_DESIGN_PADDINGS, HERO_DEFAULT_DESIGN.padding),
+        header: pickEnum(src && src.header, ALLOWED_DESIGN_HEADERS, HERO_DEFAULT_DESIGN.header),
+        titleAlign: pickEnum(src && src.titleAlign, ALLOWED_DESIGN_TITLE_ALIGNS, HERO_DEFAULT_DESIGN.titleAlign),
+        accent: pickEnum(src && src.accent, ALLOWED_DESIGN_ACCENTS, HERO_DEFAULT_DESIGN.accent),
+        ...(src && isValidColor(src.textColor) ? { textColor: src.textColor.trim() } : {}),
+        ...(src && isValidColor(src.bgColor) ? { bgColor: src.bgColor.trim() } : {}),
+        ...(src && typeof src.font === "string" && ALLOWED_FONTS.includes(src.font) ? { font: src.font } : {}),
+        ...sanitizeDesignExtras(src),
+    };
+};
+
 // Sanitize a per-block `card` override (style/radius/border/shadow). Returns
 // undefined when there's no override object — the block then inherits the global
 // card style. Every field is whitelisted; unknown values fall back to defaults.
@@ -525,17 +747,20 @@ const sanitizeBlockCard = (raw) => {
 };
 
 const buildDefaultLayoutBlock = (type, order, sections) =>
-    withBlockContent(
-        {
-            id: type,
-            type,
-            visible: sectionIsVisible(sections, type),
-            order,
-            width: DEFAULT_LAYOUT_WIDTH_BY_TYPE[type] || "full",
-            style: "inherit",
-            variant: ALLOWED_LAYOUT_VARIANTS_BY_TYPE[type][0],
-            title: DEFAULT_LAYOUT_TITLE_BY_TYPE[type],
-        },
+    withBlockDesign(
+        withBlockContent(
+            {
+                id: type,
+                type,
+                visible: sectionIsVisible(sections, type),
+                order,
+                width: DEFAULT_LAYOUT_WIDTH_BY_TYPE[type] || "full",
+                style: "inherit",
+                variant: ALLOWED_LAYOUT_VARIANTS_BY_TYPE[type][0],
+                title: DEFAULT_LAYOUT_TITLE_BY_TYPE[type],
+            },
+            undefined
+        ),
         undefined
     );
 
@@ -559,19 +784,22 @@ const sanitizeLayout = (raw, sections) => {
             const card = sanitizeBlockCard(block.card);
             byType.set(
                 type,
-                withBlockContent(
-                    {
-                        id: type,
-                        type,
-                        visible: block.visible !== false,
-                        order: clampNumber(block.order, 0, MAX_LAYOUT_BLOCKS * 4, index),
-                        width: pickEnum(block.width, ALLOWED_LAYOUT_WIDTHS, DEFAULT_LAYOUT_WIDTH_BY_TYPE[type] || "full"),
-                        style: pickEnum(block.style, ALLOWED_LAYOUT_STYLES, "inherit"),
-                        variant: pickEnum(block.variant, variants, variants[0]),
-                        title: sanitizeBlockTitle(block.title, DEFAULT_LAYOUT_TITLE_BY_TYPE[type]),
-                        ...(card ? { card } : {}),
-                    },
-                    block.content
+                withBlockDesign(
+                    withBlockContent(
+                        {
+                            id: type,
+                            type,
+                            visible: block.visible !== false,
+                            order: clampNumber(block.order, 0, MAX_LAYOUT_BLOCKS * 4, index),
+                            width: pickEnum(block.width, ALLOWED_LAYOUT_WIDTHS, DEFAULT_LAYOUT_WIDTH_BY_TYPE[type] || "full"),
+                            style: pickEnum(block.style, ALLOWED_LAYOUT_STYLES, "inherit"),
+                            variant: pickEnum(block.variant, variants, variants[0]),
+                            title: sanitizeBlockTitle(block.title, DEFAULT_LAYOUT_TITLE_BY_TYPE[type]),
+                            ...(card ? { card } : {}),
+                        },
+                        block.content
+                    ),
+                    block.design
                 )
             );
         });
