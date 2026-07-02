@@ -649,7 +649,7 @@ export const getFollowingFeedService = async(limit, userId, before) => {
         repost_caption: row.repost_caption,
         prompt_id: row.prompt_id,
         writing_prompts: row.prompt_text ? { prompt_text: row.prompt_text } : null,
-        users: { id: row.user_obj_id, name: row.user_name, image_url: row.user_image_url, badge: row.user_badge },
+        users: { id: row.user_obj_id, name: row.user_name, username: row.user_username, image_url: row.user_image_url, badge: row.user_badge },
         like_count: [{ count: Number(row.like_count) }],
         reaction_count: [{ count: Number(row.reaction_count) }],
         comment_count: [{ count: Number(row.comment_count) }],
@@ -727,7 +727,7 @@ export const getForYouFeedService = async (limit, userId, offset) => {
         repost_caption: row.repost_caption,
         prompt_id: row.prompt_id,
         writing_prompts: row.prompt_text ? { prompt_text: row.prompt_text } : null,
-        users: { id: row.user_obj_id, name: row.user_name, image_url: row.user_image_url, badge: row.user_badge },
+        users: { id: row.user_obj_id, name: row.user_name, username: row.user_username, image_url: row.user_image_url, badge: row.user_badge },
         like_count: [{ count: Number(row.like_count) }],
         reaction_count: [{ count: Number(row.reaction_count) }],
         comment_count: [{ count: Number(row.comment_count) }],
@@ -826,6 +826,7 @@ export const getMonthlyHottestJournalsService = async(limit, userId) => {
             users: {
                 id: row.user_id,
                 name: row.user_name,
+                username: row.user_username,
                 image_url: row.user_image_url,
                 badge: row.user_badge
             },
