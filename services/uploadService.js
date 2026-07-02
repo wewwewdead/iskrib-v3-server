@@ -6,6 +6,7 @@ import GenerateEmbeddings from "../utils/GenerateEmbeddings.js";
 import { extractMentionUserIds } from "../utils/extractMentions.js";
 import { updateUserInterestsEmbedding } from "./interestEmbeddingService.js";
 import { deleteOldBackgroundAssets } from "./profileBackgroundService.js";
+import { generateUniqueUsername } from "../utils/usernameGenerator.js";
 
 const POST_TYPE_TEXT = 'text';
 
@@ -103,8 +104,12 @@ export const uploadUserDataService = async(bio, name, image, userId, userEmail, 
         throw {status: 400, error: 'bio should be a string and not more than 150 characters'}
     }
 
-    // Validate username if provided
-    let validatedUsername = null;
+    // Validate an explicitly requested username (the onboarding wizard sends a
+    // name-derived slug). Format/length is enforced up front; uniqueness is not,
+    // because generateUniqueUsername resolves collisions with a suffix instead of
+    // failing signup. Every user MUST end up with a username — the public profile
+    // routes (/u/:username) 404 for username-less users.
+    let requestedUsername = null;
     if(username && typeof username === 'string'){
         const trimmed = username.trim().toLowerCase();
         if(trimmed.length < 3 || trimmed.length > 50){
@@ -113,17 +118,11 @@ export const uploadUserDataService = async(bio, name, image, userId, userEmail, 
         if(!/^[a-z0-9](?:[a-z0-9]*(?:-[a-z0-9]+)*)?$/.test(trimmed)){
             throw {status: 400, error: 'username must start/end with a letter or number and cannot have consecutive hyphens'};
         }
-        // Check uniqueness
-        const {data: existing} = await supabase
-            .from('users')
-            .select('id')
-            .ilike('username', trimmed)
-            .limit(1);
-        if(existing && existing.length > 0){
-            throw {status: 409, error: 'username is already taken'};
-        }
-        validatedUsername = trimmed;
+        requestedUsername = trimmed;
     }
+
+    // Always resolve to a unique username so no account is ever created without one.
+    const finalUsername = await generateUniqueUsername({ preferred: requestedUsername, name });
 
     let publicUrl = null;
     if(image){
@@ -137,16 +136,31 @@ export const uploadUserDataService = async(bio, name, image, userId, userEmail, 
         name: name,
         id: userId,
         user_email: userEmail || null,
-        image_url: publicUrl ? publicUrl : null
+        image_url: publicUrl ? publicUrl : null,
+        username: finalUsername
     }
 
-    if(validatedUsername){
-        data.username = validatedUsername;
-    }
+    let errorUploadData = null;
+    // Retry on a username unique-violation race (two signups grabbing the same
+    // handle between the availability check and the insert). Postgres unique
+    // violation is code 23505 on the lower(username) index.
+    for(let attempt = 0; attempt < 3; attempt++){
+        const {error} = await supabase
+            .from('users')
+            .insert([data]);
 
-    const {data: uploadData, error:errorUploadData} = await supabase
-    .from('users')
-    .insert([data])
+        if(!error){
+            errorUploadData = null;
+            break;
+        }
+
+        errorUploadData = error;
+        const isUsernameConflict = error.code === '23505' && /username/i.test(error.message || '');
+        if(!isUsernameConflict){
+            break;
+        }
+        data.username = await generateUniqueUsername({ name });
+    }
 
     if(errorUploadData){
         console.error('supabase error:', errorUploadData.message);
